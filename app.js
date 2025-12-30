@@ -1,7 +1,7 @@
-// 跑姿分析 Web App（MVP）
-// 純前端：影片不需要上傳到伺服器；分析在瀏覽器端完成。
-// 重要：這是示範用 MVP。實務上若要接近商用品質，需要更完整的事件偵測（initial contact / toe-off）
-// 與更嚴謹的相機校正（像素到實際距離、鏡頭畸變、拍攝角度補償、3D/多視角等）。
+// Running Form Analysis Web App (MVP)
+// Browser-only: video never uploaded; analysis runs in the browser.
+// Important: This is a demo MVP. Production quality needs more robust event detection (initial contact / toe-off)
+// and camera calibration (pixel-to-real distance, lens distortion, camera angle compensation, 3D/multi-view, etc).
 
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
 
@@ -9,6 +9,22 @@ const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 const WASM_ROOT =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm";
+const DEFAULT_SAMPLE_FPS = 24;
+const DEFAULT_MIN_STEP_SEC = 0.3;
+const DIRECTION_MODE = "auto";
+const MIN_DURATION_SEC = 3;
+const MIN_DETECTION_RATIO = 0.2;
+const MIN_DETECTED_FRAMES = 8;
+const MIN_CONTACTS = 4;
+const MIN_LONG_EDGE = 1920;
+const MIN_SHORT_EDGE = 1080;
+const NORMAL_FPS = 30;
+const SLOWMO_FPS = 240;
+const NORMAL_FPS_TOLERANCE = 6;
+const SLOWMO_FPS_TOLERANCE = 20;
+const SLOWMO_FACTOR = 8;
+const MIN_DIRECTION_SAMPLES = 8;
+const MAX_DIRECTION_FLIP_RATIO = 0.25;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -16,12 +32,8 @@ const els = {
   file: $("#videoFile"),
   video: $("#video"),
   overlay: $("#overlay"),
-  btnLoadModel: $("#btnLoadModel"),
   btnAnalyze: $("#btnAnalyze"),
   btnDownload: $("#btnDownload"),
-  sampleFps: $("#sampleFps"),
-  minStepSec: $("#minStepSec"),
-  directionMode: $("#directionMode"),
   progressBar: $("#progressBar"),
   status: $("#status"),
   log: $("#log"),
@@ -43,7 +55,7 @@ function log(msg) {
 }
 
 function setStatus(msg) {
-  els.status.textContent = `狀態：${msg}`;
+  els.status.textContent = `Status: ${msg}`;
   log(msg);
 }
 
@@ -61,7 +73,7 @@ function sleep(ms) {
 }
 
 async function yieldToUI() {
-  // 讓 UI 有機會更新（避免長時間同步阻塞造成卡死的錯覺）
+  // Give the UI a chance to update during long loops.
   await sleep(0);
 }
 
@@ -69,7 +81,7 @@ async function ensureCanvasReady() {
   if (!overlayCtx) {
     overlayCtx = els.overlay.getContext("2d");
   }
-  // Canvas 實際像素尺寸要跟 video.videoWidth / video.videoHeight 一致
+  // Canvas pixel size should match video.videoWidth / video.videoHeight.
   const vw = els.video.videoWidth || 0;
   const vh = els.video.videoHeight || 0;
   if (vw > 0 && vh > 0) {
@@ -81,15 +93,15 @@ async function ensureCanvasReady() {
 
 async function loadModel() {
   if (poseLandmarker) {
-    setStatus("模型已載入（略過）");
+    setStatus("Model already loaded (skipped).");
     return;
   }
-  setStatus("載入模型中（WASM + 模型檔）...");
+  setStatus("Loading model (WASM + model file)...");
   setProgress(3);
 
   const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
 
-  // 先嘗試 GPU，失敗再 fallback CPU（某些環境 GPU delegate 可能不可用）
+  // Try GPU first, fall back to CPU if the delegate is unavailable.
   try {
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
@@ -99,9 +111,9 @@ async function loadModel() {
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-    setStatus("模型已載入（GPU delegate）");
+    setStatus("Model loaded (GPU delegate).");
   } catch (err) {
-    log(`GPU delegate 初始化失敗，改用 CPU。原因：${err}`);
+    log(`GPU delegate init failed, falling back to CPU. Reason: ${err}`);
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
       runningMode: "VIDEO",
@@ -110,7 +122,7 @@ async function loadModel() {
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-    setStatus("模型已載入（CPU delegate）");
+    setStatus("Model loaded (CPU delegate).");
   }
 
   setProgress(8);
@@ -123,15 +135,14 @@ async function loadModel() {
 function maybeEnableAnalyze() {
   const hasFile = !!els.file.files?.[0];
   const hasVideo = els.video.src && els.video.readyState >= 1;
-  const hasModel = !!poseLandmarker;
-  els.btnAnalyze.disabled = !(hasFile && hasVideo && hasModel);
+  els.btnAnalyze.disabled = !(hasFile && hasVideo);
 }
 
 function resetOutputs() {
   els.summary.classList.remove("muted");
   els.flags.classList.remove("muted");
   els.advice.classList.remove("muted");
-  els.summary.textContent = "分析中...";
+  els.summary.textContent = "Checking video requirements...";
   els.flags.innerHTML = "";
   els.metricsTable.innerHTML = "";
   els.advice.innerHTML = "";
@@ -150,7 +161,7 @@ function drawOverlay(landmarks, direction) {
   const ctx = overlayCtx;
   ctx.clearRect(0, 0, els.overlay.width, els.overlay.height);
 
-  // skeleton
+  // Skeleton
   drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
     lineWidth: 3,
   });
@@ -158,37 +169,46 @@ function drawOverlay(landmarks, direction) {
     radius: (d) => 2 + 2 * clamp01(d.from?.z ?? 0),
   });
 
-  // gravity / reference lines
-  const hip = midpoint(landmarks[23], landmarks[24]);
+  // Gravity / reference lines
+  const hipL = landmarks[23];
+  const hipR = landmarks[24];
+  const hip = hipL && hipR ? midpoint(hipL, hipR) : null;
   const ankleL = landmarks[27];
   const ankleR = landmarks[28];
+  let pick = null;
+  if (ankleL && ankleR) {
+    pick = ankleL.y > ankleR.y ? ankleL : ankleR;
+  } else {
+    pick = ankleL || ankleR;
+  }
 
-  // 選較低（更接近地面）的腳來畫「落地線」作為視覺參考
-  const pick = (ankleL?.y ?? 0) > (ankleR?.y ?? 0) ? ankleL : ankleR;
+  if (!hip || !Number.isFinite(hip.x) || !pick || !Number.isFinite(pick.x)) {
+    return;
+  }
 
   ctx.save();
   ctx.lineWidth = 2;
 
-  // 重心線（髖部 x）
+  // Center-of-mass line (hip x)
   ctx.strokeStyle = "rgba(255, 255, 255, 0.60)";
   ctx.beginPath();
   ctx.moveTo(hip.x * els.overlay.width, 0);
   ctx.lineTo(hip.x * els.overlay.width, els.overlay.height);
   ctx.stroke();
 
-  // 落地點線（選定腳的 x）
+  // Landing line (picked ankle x)
   ctx.strokeStyle = "rgba(255, 0, 0, 0.65)";
   ctx.beginPath();
   ctx.moveTo(pick.x * els.overlay.width, 0);
   ctx.lineTo(pick.x * els.overlay.width, els.overlay.height);
   ctx.stroke();
 
-  // 方向標記
+  // Direction marker
   const arrowY = 28;
   const arrowX = 18;
   ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.font = "14px ui-monospace, monospace";
-  ctx.fillText(direction > 0 ? "→" : "←", arrowX, arrowY);
+  ctx.fillText(direction > 0 ? ">" : "<", arrowX, arrowY);
 
   ctx.restore();
 }
@@ -204,7 +224,7 @@ function dist2D(a, b) {
 }
 
 function angleDeg(a, b, c) {
-  // angle ABC (at b) in degrees
+  // Angle ABC (at b) in degrees.
   const abx = a.x - b.x;
   const aby = a.y - b.y;
   const cbx = c.x - b.x;
@@ -241,28 +261,32 @@ function mean(arr) {
   return xs.reduce((s, x) => s + x, 0) / xs.length;
 }
 
-function estimateDirectionAuto(landmarks) {
-  // 方向：以 nose 相對於 hips 的左右判斷。
-  // 右側（x較大）視為「面向/跑向右」。
+function directionSign(landmarks) {
   const nose = landmarks?.[0];
   const hip = landmarks ? midpoint(landmarks[23], landmarks[24]) : null;
-  if (!nose || !hip) return 1;
+  if (!nose || !hip) return 0;
   const dx = nose.x - hip.x;
-  if (!Number.isFinite(dx) || Math.abs(dx) < 0.015) return 1;
+  if (!Number.isFinite(dx) || Math.abs(dx) < 0.015) return 0;
   return dx > 0 ? 1 : -1;
 }
 
+function estimateDirectionAuto(landmarks) {
+  // Use nose relative to hips to infer facing direction.
+  // Right (larger x) means facing/running right.
+  const sign = directionSign(landmarks);
+  return sign || 1;
+}
+
 function directionFromUI(landmarks) {
-  const mode = els.directionMode.value;
-  if (mode === "right") return 1;
-  if (mode === "left") return -1;
+  if (DIRECTION_MODE === "right") return 1;
+  if (DIRECTION_MODE === "left") return -1;
   return estimateDirectionAuto(landmarks);
 }
 
 function findContactPeaks(yArr, timeArr, minStepSec) {
-  // 以 heel_y 的局部最大值（最低點）近似 initial contact。
-  // y 座標越大代表越靠近畫面下方（越接近地面）。
-  const thr = percentile(yArr, 0.80); // 取 top 20% 作為候選
+  // Use local maxima of heel_y (lowest point) as initial contact.
+  // Larger y means closer to the bottom of the frame (closer to ground).
+  const thr = percentile(yArr, 0.80); // top 20% as candidates
   if (!Number.isFinite(thr)) return [];
 
   const peaks = [];
@@ -272,7 +296,7 @@ function findContactPeaks(yArr, timeArr, minStepSec) {
     const y0 = yArr[i - 1], y1 = yArr[i], y2 = yArr[i + 1];
     const t = timeArr[i];
     if (!Number.isFinite(y0) || !Number.isFinite(y1) || !Number.isFinite(y2) || !Number.isFinite(t)) continue;
-    if (y1 < thr) continue; // 不夠低（不夠接近地面）
+    if (y1 < thr) continue; // not low enough
     if (y1 > y0 && y1 >= y2) {
       if (t - lastPeakT >= minStepSec) {
         peaks.push(i);
@@ -284,7 +308,7 @@ function findContactPeaks(yArr, timeArr, minStepSec) {
 }
 
 function classifyFootStrike(heel, toe) {
-  // y 越大越靠近地面。若 heel 明顯更低 -> heel strike
+  // Larger y is closer to ground. If heel is noticeably lower, call it heel strike.
   if (!heel || !toe) return "unknown";
   const dy = heel.y - toe.y;
   if (!Number.isFinite(dy)) return "unknown";
@@ -294,43 +318,43 @@ function classifyFootStrike(heel, toe) {
 }
 
 function interpretOverstride(ratio) {
-  if (!Number.isFinite(ratio)) return { label: "未知", level: "na" };
-  if (ratio >= 0.20) return { label: "顯著（高機率 overstride）", level: "bad" };
-  if (ratio >= 0.12) return { label: "中等（可能 overstride）", level: "warn" };
-  if (ratio >= 0.06) return { label: "輕微（可再優化）", level: "warn" };
-  return { label: "良好（落點接近髖下）", level: "good" };
+  if (!Number.isFinite(ratio)) return { label: "Unknown", level: "na" };
+  if (ratio >= 0.20) return { label: "Severe (high likelihood of overstride)", level: "bad" };
+  if (ratio >= 0.12) return { label: "Moderate (possible overstride)", level: "warn" };
+  if (ratio >= 0.06) return { label: "Mild (could improve)", level: "warn" };
+  return { label: "Good (landing near the hip)", level: "good" };
 }
 
 function interpretKnee(angle) {
-  if (!Number.isFinite(angle)) return { label: "未知", level: "na" };
-  if (angle >= 170) return { label: "非常接近打直", level: "bad" };
-  if (angle >= 160) return { label: "偏伸直", level: "warn" };
-  return { label: "有彈性（較佳）", level: "good" };
+  if (!Number.isFinite(angle)) return { label: "Unknown", level: "na" };
+  if (angle >= 170) return { label: "Very close to locked", level: "bad" };
+  if (angle >= 160) return { label: "Extended", level: "warn" };
+  return { label: "Flexed (better)", level: "good" };
 }
 
 function interpretTrunkLean(deg) {
-  // 正值：向前（沿跑步方向），負值：向後
-  if (!Number.isFinite(deg)) return { label: "未知", level: "na" };
-  if (deg < -2) return { label: "後仰（可能影響推進效率）", level: "bad" };
-  if (deg < 0) return { label: "略後仰", level: "warn" };
-  if (deg <= 12) return { label: "合理前傾範圍", level: "good" };
-  return { label: "前傾較大（視配速與個體差異）", level: "warn" };
+  // Positive: forward (aligned with running direction), negative: backward.
+  if (!Number.isFinite(deg)) return { label: "Unknown", level: "na" };
+  if (deg < -2) return { label: "Backward lean (may reduce propulsion)", level: "bad" };
+  if (deg < 0) return { label: "Slight backward lean", level: "warn" };
+  if (deg <= 12) return { label: "Reasonable forward lean", level: "good" };
+  return { label: "Large forward lean (pace dependent)", level: "warn" };
 }
 
 function interpretRetraction(speed) {
-  // 正值：落地前腳在「往後拉」；負值：還在往前伸（常見於 overstride）
-  if (!Number.isFinite(speed)) return { label: "未知", level: "na" };
-  if (speed < -0.02) return { label: "明顯往前伸（回收/回拉不足）", level: "bad" };
-  if (speed < 0.02) return { label: "回拉偏慢（可優化）", level: "warn" };
-  return { label: "有回拉（較佳）", level: "good" };
+  // Positive: pulling back before contact. Negative: still reaching forward.
+  if (!Number.isFinite(speed)) return { label: "Unknown", level: "na" };
+  if (speed < -0.02) return { label: "Clear forward reach (low retraction)", level: "bad" };
+  if (speed < 0.02) return { label: "Slow pullback (could improve)", level: "warn" };
+  return { label: "Good pullback", level: "good" };
 }
 
 function formatNum(x, digits = 2) {
-  if (!Number.isFinite(x)) return "—";
+  if (!Number.isFinite(x)) return "--";
   return x.toFixed(digits);
 }
 
-function computeContactMetrics(frames, contacts, leg, direction) {
+function computeContactMetrics(frames, contacts, leg, direction, timeScale = 1) {
   // leg: "L" or "R"
   const idxHipL = 23, idxHipR = 24;
   const idxShoulderL = 11, idxShoulderR = 12;
@@ -354,25 +378,26 @@ function computeContactMetrics(frames, contacts, leg, direction) {
     const heel = L[idxHeel];
     const toe = L[idxToe];
 
-    // leg length (approx)
+    // Leg length (approx).
     const legLen = dist2D(hip, knee) + dist2D(knee, ankle);
 
-    // overstride: ankle ahead of hip along running direction
+    // Overstride: ankle ahead of hip along running direction.
     const overstride = (ankle.x - hip.x) * direction;
     const overstrideRatio = legLen > 0 ? overstride / legLen : NaN;
 
-    // knee angle at contact
+    // Knee angle at contact.
     const kneeAngle = angleDeg(hip, knee, ankle);
 
-    // trunk lean relative to vertical, sign aligned to running direction
+    // Trunk lean relative to vertical, sign aligned to running direction.
     const dx = (shoulder.x - hip.x) * direction;
     const dy = hip.y - shoulder.y; // positive if shoulder above hip
     const trunkLeanDeg = dy !== 0 ? (Math.atan(dx / dy) * 180) / Math.PI : NaN;
 
     const strike = classifyFootStrike(heel, toe);
 
-    // retraction speed: slope of (ankle - hip) along direction in last 0.12s
-    const w = f.sampleFps ? Math.max(2, Math.floor(f.sampleFps * 0.12)) : 2;
+    // Retraction speed: slope of (ankle - hip) along direction in last 0.12s.
+    const windowSec = 0.12 * timeScale;
+    const w = f.sampleFps ? Math.max(2, Math.floor(f.sampleFps * windowSec)) : 2;
     const j0 = Math.max(0, i - w);
     const f0 = frames[j0];
     let retractSpeed = NaN;
@@ -382,7 +407,7 @@ function computeContactMetrics(frames, contacts, leg, direction) {
       const ankle0 = L0[idxAnkle];
       const rel0 = (ankle0.x - hip0.x) * direction;
       const rel1 = (ankle.x - hip.x) * direction;
-      const dt = f.t - f0.t;
+      const dt = (f.t - f0.t) / timeScale;
       if (Number.isFinite(dt) && dt > 0) {
         // rel decreasing => pulling back => positive retractionScore
         retractSpeed = -(rel1 - rel0) / dt;
@@ -406,80 +431,145 @@ function computeContactMetrics(frames, contacts, leg, direction) {
 }
 
 function buildFlags(summary) {
+  if (!summary.contactCount) {
+    return [{
+      level: "warn",
+      text: "No valid contact events detected. Try a clearer side-view video with good lighting.",
+    }];
+  }
+
   const flags = [];
 
-  if (summary.overstrideRatioMedian >= 0.12) {
-    flags.push({ level: "bad", text: "GRAVITY BACK / 步幅偏長：落地點在髖前方（overstride）機率高" });
+  if (Number.isFinite(summary.overstrideRatioMedian)) {
+    if (summary.overstrideRatioMedian >= 0.12) {
+      flags.push({ level: "bad", text: "Overstride risk: landing ahead of the hip." });
+    } else {
+      flags.push({ level: "good", text: "Landing is close to the hip (lower overstride risk)." });
+    }
   } else {
-    flags.push({ level: "good", text: "落點相對接近髖下（overstride 風險較低）" });
+    flags.push({ level: "warn", text: "Overstride: unable to estimate." });
   }
 
-  if (summary.kneeAngleMedian >= 165) {
-    flags.push({ level: "bad", text: "KNEE LOCKED：接觸瞬間膝角偏大（偏伸直/接近打直）" });
+  if (Number.isFinite(summary.kneeAngleMedian)) {
+    if (summary.kneeAngleMedian >= 165) {
+      flags.push({ level: "bad", text: "Knee near locked at contact." });
+    } else {
+      flags.push({ level: "good", text: "Knee has some flex at contact." });
+    }
   } else {
-    flags.push({ level: "good", text: "膝角保有彈性（較佳）" });
+    flags.push({ level: "warn", text: "Knee angle: unable to estimate." });
   }
 
-  if (summary.trunkLeanMedian < -1) {
-    flags.push({ level: "bad", text: "TORSO BACKWARD TILT：軀幹偏後仰（堆疊偏後）" });
+  if (Number.isFinite(summary.trunkLeanMedian)) {
+    if (summary.trunkLeanMedian < -1) {
+      flags.push({ level: "bad", text: "Backward torso lean (stacking behind)." });
+    } else {
+      flags.push({ level: "good", text: "Torso stack looks reasonable (no clear backward lean)." });
+    }
   } else {
-    flags.push({ level: "good", text: "軀幹堆疊尚可（未見明顯後仰）" });
+    flags.push({ level: "warn", text: "Trunk lean: unable to estimate." });
   }
 
-  if (summary.heelStrikeRate >= 0.6) {
-    flags.push({ level: "warn", text: "HEEL LANDING：多數接觸為後足先著地（本身不一定是問題，需搭配 overstride 判讀）" });
-  } else if (summary.heelStrikeRate <= 0.2) {
-    flags.push({ level: "good", text: "著地較偏中足/前足（以本工具估算）" });
+  if (Number.isFinite(summary.heelStrikeRate)) {
+    if (summary.heelStrikeRate >= 0.6) {
+      flags.push({ level: "warn", text: "Heel landing is common; interpret with overstride." });
+    } else if (summary.heelStrikeRate <= 0.2) {
+      flags.push({ level: "good", text: "More mid/forefoot landing (estimated)." });
+    } else {
+      flags.push({ level: "warn", text: "Mixed strike pattern (estimated)." });
+    }
   } else {
-    flags.push({ level: "warn", text: "著地型態混合（以本工具估算）" });
+    flags.push({ level: "warn", text: "Foot strike type: unable to estimate." });
   }
 
-  if (summary.retractSpeedMedian < 0.02) {
-    flags.push({ level: "warn", text: "LOWER LEG SLOW PULLING：落地前腳回拉速度偏慢（可能與 overstride / 協調性有關）" });
+  if (Number.isFinite(summary.retractSpeedMedian)) {
+    if (summary.retractSpeedMedian < 0.02) {
+      flags.push({ level: "warn", text: "Slow pullback before contact (may relate to overstride)." });
+    } else {
+      flags.push({ level: "good", text: "Good pullback before contact." });
+    }
   } else {
-    flags.push({ level: "good", text: "落地前有回拉（較佳）" });
+    flags.push({ level: "warn", text: "Leg retraction: unable to estimate." });
   }
 
   return flags;
 }
 
 function buildAdvice(summary) {
+  if (!summary.contactCount) {
+    return [
+      "No valid contact events detected. Try a clearer side-view video with minimal occlusion and steady framing.",
+    ];
+  }
+
   const out = [];
 
-  if (summary.overstrideRatioMedian >= 0.12) {
-    out.push("優先處理：縮短步幅、提高步頻 3–7%，把「腳往下放在髖下」當作主要 cue（避免伸腳去踩地）。");
-    out.push("可操作訓練：節拍器 1 分鐘正常 + 1 分鐘 +5% 步頻，做 6–10 組；每週 2 次，連續 3–4 週。");
+  if (Number.isFinite(summary.overstrideRatioMedian)) {
+    if (summary.overstrideRatioMedian >= 0.12) {
+      out.push("Priority: shorten stride and raise cadence 3-7%. Cue: place the foot down under the hip (avoid reaching).");
+      out.push("Training: metronome intervals - 1 min normal + 1 min +5% cadence, 6-10 sets, 2x/week for 3-4 weeks.");
+    } else {
+      out.push("Stride/landing: landing is close to the hip; focus on strength and elastic rebound rather than forcing a strike change.");
+    }
   } else {
-    out.push("步幅/落點：目前落點相對接近髖下，可把優化重點放在力量與彈性回彈能力（而非刻意改著地型態）。");
+    out.push("Overstride: unable to estimate. Try a clearer side-view video with visible hips and feet.");
   }
 
-  if (summary.kneeAngleMedian >= 165) {
-    out.push("膝角：避免落地瞬間膝蓋接近打直。通常「步幅變短」會自然改善膝角，不要單獨硬凹膝蓋。");
+  if (Number.isFinite(summary.kneeAngleMedian) && summary.kneeAngleMedian >= 165) {
+    out.push("Knee angle: avoid a near-locked knee at contact. Shorter stride usually improves this; do not force the knee alone.");
   }
 
-  if (summary.trunkLeanMedian < -1) {
-    out.push("軀幹：用『耳朵—肩—髖』垂直堆疊、從腳踝微前傾（不是從腰折）來改善後仰。");
+  if (Number.isFinite(summary.trunkLeanMedian) && summary.trunkLeanMedian < -1) {
+    out.push("Torso: stack ear-shoulder-hip vertically and lean slightly from the ankles (not the waist).");
   }
 
-  if (summary.heelStrikeRate >= 0.6 && summary.overstrideRatioMedian < 0.12) {
-    out.push("著地：後足先著地在很多配速下很常見；若落點已接近髖下，通常不必強迫改前足著地（避免小腿/阿基里斯過載）。");
-  } else if (summary.heelStrikeRate >= 0.6 && summary.overstrideRatioMedian >= 0.12) {
-    out.push("著地：與其把目標放在『改前足』，更應先把落地點拉回髖下；足部著地型態常會隨步幅縮短自然改變。");
+  if (Number.isFinite(summary.heelStrikeRate) && Number.isFinite(summary.overstrideRatioMedian)) {
+    if (summary.heelStrikeRate >= 0.6 && summary.overstrideRatioMedian < 0.12) {
+      out.push("Foot strike: heel striking is common at many paces; if landing is near the hip, no need to force forefoot (avoid calf/Achilles overload).");
+    } else if (summary.heelStrikeRate >= 0.6 && summary.overstrideRatioMedian >= 0.12) {
+      out.push("Foot strike: prioritize moving the landing back under the hip; strike pattern often shifts naturally.");
+    }
   }
 
-  out.push("力量/彈性（對跑步經濟性常更關鍵）：每週 2 次下肢力量（分腿蹲、髖伸、提踵）+ 1 次輕量增強式（踝彈跳/跳繩），連做 8–12 週再評估。");
+  out.push("Strength/elasticity (often most important for running economy): 2x/week lower-body strength (split squat, hip extension, calf raises) + 1x light plyometrics (ankle hops/jump rope) for 8-12 weeks.");
 
   return out;
+}
+
+function renderIssues(title, issues, suggestions) {
+  els.summary.textContent = title;
+
+  els.flags.innerHTML = "";
+  for (const issue of issues) {
+    const li = document.createElement("li");
+    li.textContent = issue;
+    li.classList.add("bad");
+    els.flags.appendChild(li);
+  }
+
+  els.advice.innerHTML = "";
+  for (const suggestion of suggestions) {
+    const li = document.createElement("li");
+    li.textContent = suggestion;
+    els.advice.appendChild(li);
+  }
+
+  els.metricsTable.innerHTML = "<tr><td colspan=\"3\" class=\"muted\">Not available</td></tr>";
+  els.btnDownload.disabled = true;
 }
 
 function renderResults(analysis) {
   const s = analysis.summary;
 
+  const durationLabel = analysis.meta.slowMoFactor > 1
+    ? `video length ${formatNum(analysis.meta.durationSec, 1)} s (slow-mo x${analysis.meta.slowMoFactor} => real time ${formatNum(analysis.meta.realDurationSec, 1)} s)`
+    : `video length ${formatNum(analysis.meta.durationSec, 1)} s`;
+
   els.summary.textContent =
-    `完成分析：取樣 ${analysis.meta.sampleFps} fps，影片長度 ${formatNum(analysis.meta.durationSec, 1)} 秒。` +
-    `\n有效接觸事件：左 ${analysis.contacts.left.length}、右 ${analysis.contacts.right.length}（共 ${analysis.contacts.all.length}）。` +
-    `\n方向：${analysis.meta.direction > 0 ? "面向/跑向右（→）" : "面向/跑向左（←）"}（${analysis.meta.directionMode}）。` +
-    `\n\n提醒：以下數值以 2D 估算，會受鏡頭角度、距離、畫面裁切、遮擋、衣著、跑台/戶外等影響。`;
+    `Analysis complete: sampled at ${analysis.meta.sampleFps} fps, ${durationLabel}.` +
+    `\nValid contact events: L ${analysis.contacts.left.length}, R ${analysis.contacts.right.length} (total ${analysis.contacts.all.length}).` +
+    `\nDirection: ${analysis.meta.direction > 0 ? "Facing/running right (>)" : "Facing/running left (<)"} (${analysis.meta.directionMode}).` +
+    "\n\nReminder: metrics are 2D estimates and can be affected by camera angle, distance, cropping, occlusion, clothing, treadmill vs outdoor, etc.";
 
   // Flags
   const flags = buildFlags(s);
@@ -495,27 +585,27 @@ function renderResults(analysis) {
   // Metrics table
   const rows = [
     {
-      name: "Overstride ratio（落地點在髖前的比例）",
+      name: "Overstride ratio (landing ahead of hip, normalized)",
       val: formatNum(s.overstrideRatioMedian, 3),
       interp: interpretOverstride(s.overstrideRatioMedian).label,
     },
     {
-      name: "Knee angle @ contact（膝角，度）",
+      name: "Knee angle @ contact (deg)",
       val: formatNum(s.kneeAngleMedian, 1),
       interp: interpretKnee(s.kneeAngleMedian).label,
     },
     {
-      name: "Trunk lean（軀幹傾角，度；+向前 / -向後）",
+      name: "Trunk lean (deg; +forward / -backward)",
       val: formatNum(s.trunkLeanMedian, 1),
       interp: interpretTrunkLean(s.trunkLeanMedian).label,
     },
     {
-      name: "Heel-strike rate（後足先著地比例）",
+      name: "Heel-strike rate",
       val: `${formatNum(s.heelStrikeRate * 100, 1)}%`,
-      interp: s.heelStrikeRate >= 0.6 ? "多數後足" : (s.heelStrikeRate <= 0.2 ? "多數非後足" : "混合"),
+      interp: s.heelStrikeRate >= 0.6 ? "Mostly heel" : (s.heelStrikeRate <= 0.2 ? "Mostly non-heel" : "Mixed"),
     },
     {
-      name: "Retraction speed（落地前回拉速度，越大越好）",
+      name: "Retraction speed (pullback before contact; higher is better)",
       val: formatNum(s.retractSpeedMedian, 3),
       interp: interpretRetraction(s.retractSpeedMedian).label,
     },
@@ -547,6 +637,81 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+async function estimateVideoFps(video) {
+  const supportsRvfc = typeof video.requestVideoFrameCallback === "function";
+  const supportsQuality = typeof video.getVideoPlaybackQuality === "function";
+  if (!supportsRvfc && !supportsQuality) return NaN;
+
+  const sampleMs = 600;
+  const minFrames = 8;
+  const originalTime = video.currentTime;
+  const wasPaused = video.paused;
+  const wasMuted = video.muted;
+  const wasPlaybackRate = video.playbackRate;
+
+  video.muted = true;
+  video.playbackRate = 1;
+
+  let frameCount = 0;
+  let start = null;
+  const startWall = performance.now();
+  let rafId = null;
+  const qualityStart = supportsQuality ? video.getVideoPlaybackQuality().totalVideoFrames : 0;
+
+  const onFrame = (now) => {
+    if (!start) start = now;
+    frameCount += 1;
+    if (now - start < sampleMs) {
+      rafId = video.requestVideoFrameCallback(onFrame);
+    }
+  };
+
+  if (supportsRvfc) {
+    rafId = video.requestVideoFrameCallback(onFrame);
+  }
+
+  try {
+    await video.play();
+  } catch (err) {
+    // Autoplay can still fail; fall through and return NaN.
+  }
+
+  await sleep(sampleMs + 150);
+
+  if (supportsRvfc && typeof video.cancelVideoFrameCallback === "function" && rafId !== null) {
+    video.cancelVideoFrameCallback(rafId);
+  }
+
+  video.pause();
+
+  const elapsedMs = start ? performance.now() - start : (performance.now() - startWall);
+  let fps = NaN;
+  if (elapsedMs > 0) {
+    if (supportsRvfc && frameCount >= minFrames) {
+      fps = frameCount / (elapsedMs / 1000);
+    } else if (supportsQuality) {
+      const qualityEnd = video.getVideoPlaybackQuality().totalVideoFrames;
+      const diff = qualityEnd - qualityStart;
+      if (diff >= minFrames) {
+        fps = diff / (elapsedMs / 1000);
+      }
+    }
+  }
+
+  video.currentTime = originalTime;
+  video.muted = wasMuted;
+  video.playbackRate = wasPlaybackRate;
+  if (!wasPaused) {
+    try {
+      await video.play();
+    } catch (err) {
+      // Ignore resume errors.
+    }
+  }
+
+  return fps;
 }
 
 function downloadJson(obj, filename) {
@@ -582,45 +747,125 @@ async function seekTo(video, tSec) {
 }
 
 async function analyze() {
-  if (!poseLandmarker) {
-    await loadModel();
-  }
   if (!els.file.files?.[0]) {
-    alert("請先選擇影片檔");
+    alert("Please choose a video file first.");
     return;
   }
   if (!els.video.duration || !Number.isFinite(els.video.duration)) {
-    alert("影片尚未載入完成，請稍候再試");
+    alert("Video is not fully loaded yet. Please try again in a moment.");
     return;
   }
 
   resetOutputs();
   setProgress(0);
-
-  const sampleFps = Number(els.sampleFps.value || 15);
-  const minStepSec = Number(els.minStepSec.value || 0.25);
+  setStatus("Checking video requirements...");
 
   const duration = els.video.duration;
+  const vw = els.video.videoWidth || 0;
+  const vh = els.video.videoHeight || 0;
+  const longEdge = Math.max(vw, vh);
+  const shortEdge = Math.min(vw, vh);
+
+  if (longEdge < MIN_LONG_EDGE || shortEdge < MIN_SHORT_EDGE) {
+    renderIssues(
+      "Video resolution too low.",
+      [
+        `Minimum required: ${MIN_LONG_EDGE}x${MIN_SHORT_EDGE} (1080p).`,
+        `Detected: ${vw}x${vh}.`,
+      ],
+      [
+        "Record or export at 1080p or higher.",
+        "Avoid heavy cropping or digital zoom.",
+      ],
+    );
+    setStatus("Analysis stopped: resolution too low.");
+    setProgress(0);
+    return;
+  }
+
+  setStatus("Checking video frame rate...");
+  const inputFps = await estimateVideoFps(els.video);
+  if (!Number.isFinite(inputFps)) {
+    renderIssues(
+      "Unable to verify frame rate.",
+      ["The browser could not read the video FPS."],
+      [
+        `Use ${NORMAL_FPS} fps (normal) or ${SLOWMO_FPS} fps (slow-motion).`,
+        "Try Chrome or Edge if this keeps happening.",
+      ],
+    );
+    setStatus("Analysis stopped: FPS unknown.");
+    setProgress(0);
+    return;
+  }
+
+  const isNormalFps = Math.abs(inputFps - NORMAL_FPS) <= NORMAL_FPS_TOLERANCE;
+  const isSlowMoFps = Math.abs(inputFps - SLOWMO_FPS) <= SLOWMO_FPS_TOLERANCE;
+  if (!isNormalFps && !isSlowMoFps) {
+    renderIssues(
+      "Unsupported frame rate.",
+      [
+        `Supported: ${NORMAL_FPS} fps (normal) or ${SLOWMO_FPS} fps (slow-motion).`,
+        `Detected: ${formatNum(inputFps, 1)} fps.`,
+      ],
+      [
+        `Export at ${NORMAL_FPS} fps or ${SLOWMO_FPS} fps.`,
+        "Avoid 60/120 fps exports or time-lapse.",
+      ],
+    );
+    setStatus("Analysis stopped: unsupported FPS.");
+    setProgress(0);
+    return;
+  }
+
+  const slowMoFactor = isSlowMoFps ? SLOWMO_FACTOR : 1;
+  const realDuration = duration / slowMoFactor;
+  if (realDuration < MIN_DURATION_SEC) {
+    renderIssues(
+      "Video too short to analyze.",
+      [
+        `Minimum real-time duration is ${MIN_DURATION_SEC.toFixed(1)} seconds.`,
+        `Detected: ${formatNum(realDuration, 2)} seconds (video length ${formatNum(duration, 2)}s).`,
+      ],
+      [
+        "Record 3-8 seconds of steady, side-view running.",
+        "Ensure at least 4-6 full strides are visible.",
+      ],
+    );
+    setStatus("Analysis stopped: video too short.");
+    setProgress(0);
+    return;
+  }
+
+  if (!poseLandmarker) {
+    await loadModel();
+  }
+
+  const sampleFps = DEFAULT_SAMPLE_FPS;
+  const minStepSec = DEFAULT_MIN_STEP_SEC * slowMoFactor;
   const dt = 1 / Math.max(5, Math.min(60, sampleFps));
   const steps = Math.max(1, Math.ceil(duration / dt));
 
-  setStatus(`分析開始：duration=${duration.toFixed(2)}s, sampleFps=${sampleFps}, steps≈${steps}`);
+  setStatus(`Analysis started: duration=${duration.toFixed(2)}s, sampleFps=${sampleFps}, steps~${steps}`);
   await ensureCanvasReady();
 
-  // frame records
+  // Frame records
   const frames = [];
   let direction = 1;
   let directionLocked = false;
+  let detectedFrames = 0;
+  let directionLeft = 0;
+  let directionRight = 0;
 
-  // 用 seek + detectForVideo 逐幀取樣
-  // 注意：對很長的影片會比較花時間；實務上可加「只分析某段」或「先裁切」等功能。
+  // Sample frames using seek + detectForVideo.
+  // Long videos may take time; consider trimming for faster analysis.
   for (let k = 0; k <= steps; k++) {
     const t = Math.min(duration, k * dt);
 
     // Seek
     await seekTo(els.video, t);
 
-    // detect
+    // Detect
     let result = null;
     try {
       result = poseLandmarker.detectForVideo(els.video, t * 1000);
@@ -630,6 +875,12 @@ async function analyze() {
     }
 
     const landmarks = result?.landmarks?.[0] ?? null;
+    if (landmarks) {
+      detectedFrames += 1;
+      const sign = directionSign(landmarks);
+      if (sign === 1) directionRight += 1;
+      if (sign === -1) directionLeft += 1;
+    }
 
     if (landmarks && !directionLocked) {
       direction = directionFromUI(landmarks);
@@ -655,7 +906,75 @@ async function analyze() {
   }
 
   setProgress(82);
-  setStatus("計算步態事件與摘要...");
+  setStatus("Computing gait events and summary...");
+
+  const detectionRatio = frames.length ? detectedFrames / frames.length : 0;
+  if (detectedFrames === 0) {
+    renderIssues(
+      "No runner detected.",
+      ["No person could be detected in the video."],
+      [
+        "Use a clear side-view shot with the full body visible.",
+        "Increase lighting and avoid motion blur.",
+      ],
+    );
+    setStatus("Analysis stopped: no person detected.");
+    setProgress(100);
+    return;
+  }
+
+  if (detectedFrames < MIN_DETECTED_FRAMES || detectionRatio < MIN_DETECTION_RATIO) {
+    renderIssues(
+      "Low detection quality.",
+      [
+        "Too few frames contained reliable pose landmarks.",
+        "Video may be blurry, too dark, or the runner is too small in frame.",
+      ],
+      [
+        "Use a brighter, sharper video and keep the runner larger in frame.",
+        "Avoid heavy occlusion and fast camera motion.",
+      ],
+    );
+    setStatus("Analysis stopped: low detection quality.");
+    setProgress(100);
+    return;
+  }
+
+  const directionSamples = directionLeft + directionRight;
+  if (directionSamples < MIN_DIRECTION_SAMPLES) {
+    renderIssues(
+      "Direction unclear.",
+      ["The runner's facing direction could not be determined reliably."],
+      [
+        "Keep the runner fully visible in a clear side view.",
+        "Avoid heavy occlusion or extreme camera angles.",
+      ],
+    );
+    setStatus("Analysis stopped: direction unclear.");
+    setProgress(100);
+    return;
+  }
+
+  if (directionLeft > 0 && directionRight > 0) {
+    const flipRatio = Math.min(directionLeft, directionRight) / directionSamples;
+    if (flipRatio > MAX_DIRECTION_FLIP_RATIO) {
+      renderIssues(
+        "Inconsistent running direction.",
+        ["The runner appears to change direction within the clip."],
+        [
+          "Use a single-direction clip (left-to-right or right-to-left).",
+          "Avoid out-and-back segments or camera flips.",
+        ],
+      );
+      setStatus("Analysis stopped: inconsistent direction.");
+      setProgress(100);
+      return;
+    }
+  }
+
+  if (directionSamples > 0) {
+    direction = directionRight >= directionLeft ? 1 : -1;
+  }
 
   // Build y arrays for heel peaks
   const leftHeelY = frames.map((f) => f.landmarks?.[29]?.y ?? NaN);
@@ -665,10 +984,26 @@ async function analyze() {
   const leftPeaks = findContactPeaks(leftHeelY, timeArr, minStepSec);
   const rightPeaks = findContactPeaks(rightHeelY, timeArr, minStepSec);
 
-  // compute metrics at peaks
-  const leftMetrics = computeContactMetrics(frames, leftPeaks, "L", direction);
-  const rightMetrics = computeContactMetrics(frames, rightPeaks, "R", direction);
+  // Compute metrics at peaks
+  const leftMetrics = computeContactMetrics(frames, leftPeaks, "L", direction, slowMoFactor);
+  const rightMetrics = computeContactMetrics(frames, rightPeaks, "R", direction, slowMoFactor);
   const allMetrics = [...leftMetrics, ...rightMetrics].sort((a, b) => a.t - b.t);
+  if (allMetrics.length < MIN_CONTACTS) {
+    renderIssues(
+      "Too few strides detected.",
+      [
+        "Not enough clear contact events were found.",
+        `Detected: L ${leftMetrics.length}, R ${rightMetrics.length}.`,
+      ],
+      [
+        "Use a longer clip with several strides (3-5 seconds).",
+        "Keep the runner fully visible from head to feet.",
+      ],
+    );
+    setStatus("Analysis stopped: too few strides.");
+    setProgress(100);
+    return;
+  }
 
   const overstrideRatios = allMetrics.map((m) => m.overstrideRatio);
   const kneeAngles = allMetrics.map((m) => m.kneeAngle);
@@ -686,10 +1021,13 @@ async function analyze() {
     meta: {
       createdAt: new Date().toISOString(),
       durationSec: duration,
+      realDurationSec: realDuration,
+      inputFpsEstimate: inputFps,
+      slowMoFactor,
       sampleFps,
       minStepSec,
       direction,
-      directionMode: els.directionMode.value,
+      directionMode: DIRECTION_MODE,
       model: {
         name: "MediaPipe PoseLandmarker Lite",
         modelUrl: MODEL_URL,
@@ -698,6 +1036,7 @@ async function analyze() {
       notes: [
         "All metrics are 2D approximations in normalized image coordinates.",
         "Contact events are detected by local maxima of heel y (lowest point) and can be noisy.",
+        "Time-based metrics are normalized using the slow-motion factor when applicable.",
         "Do not use as medical diagnosis. Use as training feedback only.",
       ],
     },
@@ -720,18 +1059,8 @@ async function analyze() {
   renderResults(analysis);
 
   setProgress(100);
-  setStatus("完成");
+  setStatus("Done.");
 }
-
-els.btnLoadModel.addEventListener("click", async () => {
-  try {
-    await loadModel();
-  } catch (e) {
-    console.error(e);
-    setStatus(`模型載入失敗：${e}`);
-    alert("模型載入失敗，請檢查網路或改用 Chrome/Edge 再試。");
-  }
-});
 
 els.file.addEventListener("change", () => {
   const file = els.file.files?.[0];
@@ -741,11 +1070,11 @@ els.file.addEventListener("change", () => {
   els.video.src = url;
   els.video.load();
 
-  setStatus(`已選擇影片：${file.name}（${Math.round(file.size / 1024 / 1024)} MB）`);
+  setStatus(`Selected video: ${file.name} (${Math.round(file.size / 1024 / 1024)} MB)`);
   setProgress(0);
 
   els.video.onloadedmetadata = async () => {
-    setStatus(`影片已載入：${els.video.videoWidth}x${els.video.videoHeight}, duration=${els.video.duration.toFixed(2)}s`);
+    setStatus(`Video loaded: ${els.video.videoWidth}x${els.video.videoHeight}, duration=${els.video.duration.toFixed(2)}s`);
     await ensureCanvasReady();
     maybeEnableAnalyze();
   };
@@ -757,8 +1086,8 @@ els.btnAnalyze.addEventListener("click", async () => {
     await analyze();
   } catch (e) {
     console.error(e);
-    setStatus(`分析失敗：${e}`);
-    alert("分析失敗。建議換短一點的影片、降低取樣 FPS，或換 Chrome/Edge 再試。");
+    setStatus(`Analysis failed: ${e}`);
+    alert("Analysis failed. Try a shorter video, lower sampling FPS, or Chrome/Edge.");
   } finally {
     els.btnAnalyze.disabled = false;
   }
@@ -769,7 +1098,7 @@ els.btnDownload.addEventListener("click", () => {
   downloadJson(lastAnalysis, "run-gait-analysis.json");
 });
 
-// 初始 UI 狀態
-setStatus("等待使用者操作：先『載入模型』→ 選擇影片 → 開始分析");
+// Initial UI state
+setStatus("Waiting for input: choose video -> Start Analysis");
 setProgress(0);
 maybeEnableAnalyze();

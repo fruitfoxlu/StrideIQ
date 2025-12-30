@@ -149,6 +149,17 @@ canvas#overlay {
 }
 
 .hint { margin: 10px 0 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.requirements {
+  margin: 10px 0 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0e1420;
+  font-size: 13px;
+}
+.requirements-title { font-weight: 600; margin-bottom: 6px; }
+.requirements ul { margin: 0 0 6px 18px; padding: 0; color: var(--muted); line-height: 1.45; }
+.requirements-note { color: var(--muted); font-size: 12px; }
 
 .summary {
   padding: 12px;
@@ -156,6 +167,7 @@ canvas#overlay {
   border-radius: 12px;
   background: #0e1420;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 .flags, .advice { line-height: 1.6; }

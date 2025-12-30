@@ -1,120 +1,111 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>跑姿分析 Web App（MVP）</title>
+  <title>Running Form Analysis Web App (MVP)</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <header class="container">
-    <h1>跑姿分析 Web App（MVP）</h1>
+    <h1>Running Form Analysis Web App (MVP)</h1>
     <p class="sub">
-      純前端（不需上傳影片到伺服器）：使用 MediaPipe PoseLandmarker 在瀏覽器端做姿勢點偵測，並用簡化規則估算
-      <span class="mono">overstride / 膝伸直 / 軀幹傾角 / 著地型態 / 腳回收</span> 等指標。
+      Browser-only (no upload): uses MediaPipe PoseLandmarker in the browser and simple rules to estimate
+      <span class="mono">overstride / knee extension / trunk lean / foot strike / leg retraction</span>.
     </p>
     <p class="warn">
-      注意：這是可部署的「基礎版本」示範。跑姿與跑步經濟性屬複雜議題，本工具只能提供近似估算與趨勢參考。
+      Note: This is a deployable baseline demo. Running form and running economy are complex; this tool provides
+      approximate estimates and trend signals only.
     </p>
   </header>
 
   <main class="container grid">
     <section class="card">
-      <h2>1) 輸入影片</h2>
+      <h2>1) Input Video</h2>
 
       <label class="field">
-        <span>選擇側面跑步影片（mp4/webm）：</span>
+        <span>Choose a side-view running video (mp4/webm):</span>
         <input id="videoFile" type="file" accept="video/*" />
       </label>
-
-      <div class="row">
-        <label class="field small">
-          <span>取樣 FPS（分析速度 vs 精細度）：</span>
-          <input id="sampleFps" type="number" min="5" max="60" step="1" value="15" />
-        </label>
-
-        <label class="field small">
-          <span>最小步態間隔（秒，避免重複抓到同一步）：</span>
-          <input id="minStepSec" type="number" min="0.15" max="1.0" step="0.05" value="0.25" />
-        </label>
-
-        <label class="field small">
-          <span>方向（自動/面向右/面向左）：</span>
-          <select id="directionMode">
-            <option value="auto" selected>自動判斷</option>
-            <option value="right">面向/跑向右（→）</option>
-            <option value="left">面向/跑向左（←）</option>
-          </select>
-        </label>
+      <p class="hint">Defaults: 24 FPS sampling, 0.30s minimum step interval to avoid double counting.</p>
+      <div class="requirements">
+        <div class="requirements-title">Requirements (enforced)</div>
+        <ul>
+          <li>Side view, single runner, and consistent direction (left-to-right or right-to-left).</li>
+          <li>1080p @ 30 fps (normal) or 1080p @ 240 fps (slow-motion).</li>
+          <li>At least 3 seconds of running (4-6 strides).</li>
+        </ul>
+        <div class="requirements-note">iPhone defaults: 1080p@30 (Video) or 1080p@240 (Slo-mo) in Settings &gt; Camera.</div>
+        <div class="requirements-note">Slow-motion requires a true 240 fps file (not a 30 fps export).</div>
       </div>
 
       <div class="row">
-        <button id="btnLoadModel" class="secondary">載入模型</button>
-        <button id="btnAnalyze" class="primary" disabled>開始分析</button>
-        <button id="btnDownload" class="secondary" disabled>下載結果 JSON</button>
+        <button id="btnAnalyze" class="primary" disabled>Start Analysis</button>
+        <button id="btnDownload" class="secondary" disabled>Download JSON</button>
       </div>
 
       <div class="progress">
         <div id="progressBar" class="progress-bar" style="width: 0%"></div>
       </div>
-      <div id="status" class="status">狀態：等待載入</div>
+      <div id="status" class="status">Status: waiting for video</div>
 
       <details class="debug">
-        <summary>檢視分析日誌（debug）</summary>
+        <summary>View analysis log (debug)</summary>
         <pre id="log"></pre>
       </details>
     </section>
 
     <section class="card">
-      <h2>2) 影片與骨架疊圖</h2>
+      <h2>2) Video & Skeleton Overlay</h2>
       <div class="video-wrap">
         <video id="video" controls playsinline></video>
         <canvas id="overlay"></canvas>
       </div>
       <p class="hint">
-        建議拍攝：手機固定、鏡頭高度接近髖部、側面拍攝、光線充足、人物佔畫面高度約 60–90%。
+        Suggested capture: phone fixed, camera height near hip, side view, good lighting, subject fills ~60-90% of
+        frame height.
       </p>
     </section>
 
     <section class="card">
-      <h2>3) 分析結果</h2>
+      <h2>3) Results</h2>
 
       <div id="summary" class="summary muted">
-        尚未分析。請先載入模型、選擇影片，再點「開始分析」。
+        Not analyzed yet. Choose a video, then click "Start Analysis".
       </div>
 
-      <h3>App 風格提示（依本工具規則推估）</h3>
+      <h3>Form Flags (estimated by this tool)</h3>
       <ul id="flags" class="flags muted">
-        <li>尚未分析</li>
+        <li>Not analyzed yet</li>
       </ul>
 
-      <h3>關鍵數值（以偵測到的接觸瞬間為主）</h3>
+      <h3>Key Metrics (based on detected contact frames)</h3>
       <div class="table-wrap">
         <table id="metricsTable" class="metrics">
           <thead>
             <tr>
-              <th>指標</th>
-              <th>估計值（中位數）</th>
-              <th>解讀</th>
+              <th>Metric</th>
+              <th>Estimate (median)</th>
+              <th>Interpretation</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="3" class="muted">尚未分析</td></tr>
+            <tr><td colspan="3" class="muted">Not analyzed yet</td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3>建議（對應跑步經濟性）</h3>
+      <h3>Recommendations (running economy)</h3>
       <ol id="advice" class="advice muted">
-        <li>尚未分析</li>
+        <li>Not analyzed yet</li>
       </ol>
     </section>
   </main>
 
   <footer class="container footer">
     <p class="muted">
-      技術基礎：MediaPipe PoseLandmarker（Web）。
-      本專案提供可部署的 MVP 參考，適合用來驗證產品流程與做初步量化。
+      Tech: MediaPipe PoseLandmarker (Web).
+      This project is a deployable MVP reference for validating product flow and early quantification.
     </p>
   </footer>
 
