@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Running Form Analysis Web App (MVP)</title>
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./style.css?v=1" />
 </head>
 <body>
   <header class="container">
@@ -21,22 +21,14 @@
 
   <main class="container grid">
     <section class="card">
-      <h2>1) Input Video</h2>
-
-      <label class="field">
-        <span>Choose a side-view running video (mp4/webm):</span>
-        <input id="videoFile" type="file" accept="video/*" />
-      </label>
-      <p class="hint">Defaults: 24 FPS sampling, 0.30s minimum step interval to avoid double counting.</p>
+      <h2>1) Requirements & Example</h2>
       <div class="requirements">
         <div class="requirements-title">Requirements (enforced)</div>
         <ul>
           <li>Side view, single runner, and consistent direction (left-to-right or right-to-left).</li>
-          <li>1080p @ 30 fps (normal) or 1080p @ 240 fps (slow-motion).</li>
+          <li>iPhone default Video (1080p @ 30 fps) or iPhone Slo-mo (1080p @ 240 fps).</li>
           <li>At least 3 seconds of running (4-6 strides).</li>
         </ul>
-        <div class="requirements-note">iPhone defaults: 1080p@30 (Video) or 1080p@240 (Slo-mo) in Settings &gt; Camera.</div>
-        <div class="requirements-note">Slow-motion requires a true 240 fps file (not a 30 fps export).</div>
       </div>
       <div class="requirements-example">
         <div class="requirements-title">Example: Good capture framing</div>
@@ -50,6 +42,15 @@
         </div>
         <div class="requirements-note">Example only (not analyzable). Follow this framing for your own video.</div>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>2) Input Video</h2>
+
+      <label class="field">
+        <span>Choose a side-view running video (mp4/webm):</span>
+        <input id="videoFile" type="file" accept="video/*" />
+      </label>
 
       <div class="row">
         <button id="btnAnalyze" class="primary" disabled>Start Analysis</button>
@@ -68,7 +69,7 @@
     </section>
 
     <section class="card">
-      <h2>2) Video & Skeleton Overlay</h2>
+      <h2>3) Video & Skeleton Overlay</h2>
       <div class="video-wrap">
         <video id="video" controls playsinline></video>
         <canvas id="overlay"></canvas>
@@ -80,7 +81,7 @@
     </section>
 
     <section class="card">
-      <h2>3) Results</h2>
+      <h2>4) Results</h2>
 
       <div id="summary" class="summary muted">
         Not analyzed yet. Choose a video, then click "Start Analysis".
@@ -119,8 +120,11 @@
       Tech: MediaPipe PoseLandmarker (Web).
       This project is a deployable MVP reference for validating product flow and early quantification.
     </p>
+    <p class="muted">
+      Feedback: <a href="mailto:fruitfoxlu@gmail.com">fruitfoxlu@gmail.com</a> — I’d love to hear your ideas, feature requests, or video format needs.
+    </p>
   </footer>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=1"></script>
 </body>
 </html>

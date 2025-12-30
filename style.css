@@ -41,10 +41,7 @@ header h1 {
 
 @media (min-width: 980px) {
   .grid {
-    grid-template-columns: 1.05fr 1.25fr;
-  }
-  .grid > section:nth-child(3) {
-    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
   }
 }
 

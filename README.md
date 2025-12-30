@@ -29,7 +29,7 @@ Note: This is a demo MVP. Production quality usually needs:
 ## Video Requirements (enforced)
 
 - Side view, single runner, consistent direction (left-to-right or right-to-left)
-- 1080p @ 30 fps (normal) or 1080p @ 240 fps (slow-motion; must be true 240 fps files)
+- iPhone default Video (1080p @ 30 fps) or iPhone Slo-mo (1080p @ 240 fps; must be true 240 fps files)
 - At least 3 seconds of running (4-6 strides)
 - iPhone defaults: 1080p@30 (Video) or 1080p@240 (Slo-mo) in Settings > Camera
 
@@ -77,3 +77,7 @@ Because all analysis runs in the browser, any static host works:
 
 - App code: add your own LICENSE as needed
 - MediaPipe / model assets: follow Google/MediaPipe licensing terms
+
+## Feedback
+
+Email: fruitfoxlu@gmail.com
