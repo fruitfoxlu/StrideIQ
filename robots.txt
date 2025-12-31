@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://fruitfoxlu.github.io/StrideIQ/sitemap.xml
