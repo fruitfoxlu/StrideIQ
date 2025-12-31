@@ -29,18 +29,20 @@ const SLOWMO_FPS = 240;
 const NORMAL_FPS_TOLERANCE = 6;
 const SLOWMO_FPS_TOLERANCE = 20;
 const SLOWMO_FACTOR = 8;
-const FPS_PROBE_MS_MOBILE = 350;
+const FPS_PROBE_MS_MOBILE = 220;
 const FPS_PROBE_MS_DESKTOP = 600;
-const FPS_PROBE_TIMEOUT_EXTRA_MS = 600;
-const FPS_MIN_FRAMES_MOBILE = 4;
+const FPS_PROBE_TIMEOUT_EXTRA_MS = 200;
+const FPS_MIN_FRAMES_MOBILE = 3;
 const FPS_MIN_FRAMES_DESKTOP = 8;
 const MIN_DIRECTION_SAMPLES = 8;
 const MAX_DIRECTION_FLIP_RATIO = 0.25;
-const MAX_SAMPLES_MOBILE = 150;
+const MAX_SAMPLES_MOBILE = 100;
 const MAX_SAMPLES_DESKTOP = 240;
-const INFER_LONG_EDGE_MOBILE = 384;
+const INFER_LONG_EDGE_MOBILE = 320;
 const INFER_LONG_EDGE_DESKTOP = 640;
 const MODEL_URL_PATTERN = /blazepose/i;
+const MOBILE_OVERLAY_EVERY = 6;
+const MOBILE_YIELD_EVERY = 1;
 const POSE_CONNECTIONS = (() => {
   try {
     return poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
@@ -1207,6 +1209,7 @@ async function analyze() {
   const vh = els.video.videoHeight || 0;
   const longEdge = Math.max(vw, vh);
   const shortEdge = Math.min(vw, vh);
+  const mobile = isMobileDevice();
 
   if (longEdge < MIN_LONG_EDGE || shortEdge < MIN_SHORT_EDGE) {
     renderIssue("resolutionLow", {
@@ -1224,18 +1227,20 @@ async function analyze() {
   await seekTo(els.video, 0);
 
   setStatus("status.checkingFps");
-  const fpsStart = performance.now();
-  let inputFps = await estimateVideoFps(els.video);
-  if (!Number.isFinite(inputFps) && isMobileDevice()) {
+  let inputFps;
+  if (mobile) {
     inputFps = MOBILE_FPS_FALLBACK;
-    log(`Debug: Using mobile FPS fallback ${inputFps}fps after probe failed`);
-  }
-  log(`Debug: estimateVideoFps total time=${Math.round(performance.now() - fpsStart)}ms, result=${formatNum(inputFps, 2)}`);
-  if (!Number.isFinite(inputFps)) {
-    renderIssue("fpsUnknown");
-    setStatus("status.stoppedFpsUnknown");
-    setProgress(0);
-    return;
+    log(`Debug: mobile light path using assumed fps ${inputFps}`);
+  } else {
+    const fpsStart = performance.now();
+    inputFps = await estimateVideoFps(els.video);
+    log(`Debug: estimateVideoFps total time=${Math.round(performance.now() - fpsStart)}ms, result=${formatNum(inputFps, 2)}`);
+    if (!Number.isFinite(inputFps)) {
+      renderIssue("fpsUnknown");
+      setStatus("status.stoppedFpsUnknown");
+      setProgress(0);
+      return;
+    }
   }
 
   const isNormalFps = Math.abs(inputFps - NORMAL_FPS) <= NORMAL_FPS_TOLERANCE;
@@ -1295,6 +1300,7 @@ async function analyze() {
       height: infer.height,
       modelType: getModelTypeLabel(modelTypeResolved || resolveModelType(modelTypeSelection)),
       backend: modelBackend || "-",
+      mobileLight: mobile ? "on" : "off",
     }));
   }
 
@@ -1308,6 +1314,8 @@ async function analyze() {
 
   // Sample frames using seek + estimatePoses.
   // Long videos may take time; consider trimming for faster analysis.
+  const overlayEvery = mobile ? MOBILE_OVERLAY_EVERY : 1;
+  const yieldEvery = mobile ? MOBILE_YIELD_EVERY : 8;
   for (let k = 0; k <= steps; k++) {
     const timeSec = Math.min(duration, k * dt);
 
@@ -1351,13 +1359,13 @@ async function analyze() {
       sampleFps,
     });
 
-    if (landmarks) {
+    if (landmarks && (k % overlayEvery === 0)) {
       drawOverlay(landmarks, direction);
-    } else {
+    } else if (k % overlayEvery === 0) {
       clearOverlay();
     }
 
-    if (k % 8 === 0) {
+    if (k % yieldEvery === 0) {
       setProgress(15 + (k / Math.max(1, steps)) * 70); // 15-85 for analysis loop
       await yieldToUI();
     }
