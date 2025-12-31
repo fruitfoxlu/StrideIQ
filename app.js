@@ -312,7 +312,7 @@ async function loadModel() {
   }
   setStatus("status.modelLoading", { modelType: getModelTypeLabel(nextModelType) });
   setProgress(5);
-  log(t("log.modelInitProgress", { stage: "backend", pct: 5 }));
+  log(t("log.modelInitProgress", { stage: "backend" }));
 
   try {
     const ok = await tf.setBackend("webgl");
@@ -325,7 +325,7 @@ async function loadModel() {
   }
   modelBackend = tf.getBackend();
   setProgress(10);
-  log(t("log.modelInitProgress", { stage: "downloading model", pct: 10 }));
+  log(t("log.modelInitProgress", { stage: "downloading model" }));
 
   try {
     poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
@@ -339,7 +339,7 @@ async function loadModel() {
       backend: modelBackend,
     });
     setProgress(15);
-    log(t("log.modelInitProgress", { stage: "model ready", pct: 15 }));
+    log(t("log.modelInitProgress", { stage: "model ready" }));
     updateModelHint();
   } catch (err) {
     log(t("log.modelInitFailed", { error: String(err) }));
@@ -1108,6 +1108,9 @@ async function analyze() {
     return;
   }
 
+  // Reset to the start so FPS sampling always has playable frames (prevents end-of-video FPS=null on repeat runs).
+  await seekTo(els.video, 0);
+
   setStatus("status.checkingFps");
   const inputFps = await estimateVideoFps(els.video);
   if (!Number.isFinite(inputFps)) {
@@ -1239,6 +1242,10 @@ async function analyze() {
     if (k % 8 === 0) {
       setProgress(15 + (k / Math.max(1, steps)) * 70); // 15-85 for analysis loop
       await yieldToUI();
+    }
+    if (steps > 0 && k > 0 && k % Math.max(1, Math.floor(steps / 10)) === 0) {
+      const pct = Math.round((k / steps) * 100);
+      log(t("log.analysisProgress", { pct }));
     }
   }
 

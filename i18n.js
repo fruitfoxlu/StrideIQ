@@ -120,7 +120,8 @@ export const I18N = {
       detectError: "estimatePoses error @{time}s: {error}",
       modelInitFailed: "Model init failed: {error}",
       analysisConfig: "Sampling {steps} frames (~{sampleFps} fps), resize to {width}x{height}, model {modelType} (backend {backend}).",
-      modelInitProgress: "Model init: {stage} ({pct}%)",
+      modelInitProgress: "Model init: {stage}",
+      analysisProgress: "Analysis progress: {pct}%",
     },
     issues: {
       videoTooShort: {
@@ -408,7 +409,8 @@ export const I18N = {
       detectError: "estimatePoses 錯誤 @{time}s: {error}",
       modelInitFailed: "模型初始化失敗：{error}",
       analysisConfig: "取樣 {steps} 幀（約 {sampleFps} fps），縮放至 {width}x{height}，模型 {modelType}（後端 {backend}）。",
-      modelInitProgress: "模型初始化：{stage}（{pct}%）",
+      modelInitProgress: "模型初始化：{stage}",
+      analysisProgress: "分析進度：{pct}%",
     },
     issues: {
       videoTooShort: {
