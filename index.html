@@ -65,8 +65,7 @@
       <label class="field">
         <span data-i18n="input.modelLabel">Model quality</span>
         <select id="modelType">
-          <option value="auto" data-i18n="input.modelAuto">Auto (Lite on mobile, Full on desktop)</option>
-          <option value="lite" data-i18n="input.modelLite">Lite (faster on phones)</option>
+          <option value="lite" data-i18n="input.modelLite">Lite (default, faster)</option>
           <option value="full" data-i18n="input.modelFull">Full (better accuracy)</option>
         </select>
       </label>
@@ -82,7 +81,7 @@
       </div>
       <div id="status" class="status" data-i18n="status.waitingVideo">Status: waiting for video</div>
 
-      <details class="debug">
+      <details class="debug" id="debugDetails" open>
         <summary data-i18n="input.debug">View analysis log (debug)</summary>
         <pre id="log"></pre>
       </details>

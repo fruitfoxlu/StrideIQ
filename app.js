@@ -15,7 +15,7 @@ const MODEL_TYPE_AUTO = "auto";
 const MODEL_TYPE_LITE = "lite";
 const MODEL_TYPE_FULL = "full";
 const MOBILE_MODEL_TYPE = MODEL_TYPE_LITE;
-const DESKTOP_MODEL_TYPE = MODEL_TYPE_FULL;
+const DESKTOP_MODEL_TYPE = MODEL_TYPE_LITE; // default all to lite for speed
 const MIN_POSE_SCORE = 0.2;
 const MIN_DURATION_SEC = 3;
 const MIN_DETECTION_RATIO = 0.2;
@@ -68,7 +68,7 @@ let lastAnalysis = null;
 let currentLang = DEFAULT_LANG;
 let lastStatus = null;
 let lastRender = null;
-let modelTypeSelection = MODEL_TYPE_AUTO;
+let modelTypeSelection = MODEL_TYPE_LITE;
 let modelTypeResolved = null;
 let modelBackend = null;
 let inferenceCanvas = null;
@@ -236,7 +236,7 @@ function initModelType() {
   } catch (err) {
     stored = null;
   }
-  setModelTypeSelection(stored || MODEL_TYPE_AUTO);
+  setModelTypeSelection(stored || MODEL_TYPE_LITE);
   if (els.modelType) {
     els.modelType.addEventListener("change", (event) => {
       setModelTypeSelection(event.target.value);
@@ -311,7 +311,8 @@ async function loadModel() {
     resetPoseDetector();
   }
   setStatus("status.modelLoading", { modelType: getModelTypeLabel(nextModelType) });
-  setProgress(3);
+  setProgress(5);
+  log(t("log.modelInitProgress", { stage: "backend", pct: 5 }));
 
   try {
     const ok = await tf.setBackend("webgl");
@@ -323,6 +324,8 @@ async function loadModel() {
     await tf.ready();
   }
   modelBackend = tf.getBackend();
+  setProgress(10);
+  log(t("log.modelInitProgress", { stage: "downloading model", pct: 10 }));
 
   try {
     poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
@@ -335,6 +338,8 @@ async function loadModel() {
       modelType: getModelTypeLabel(nextModelType),
       backend: modelBackend,
     });
+    setProgress(15);
+    log(t("log.modelInitProgress", { stage: "model ready", pct: 15 }));
     updateModelHint();
   } catch (err) {
     log(t("log.modelInitFailed", { error: String(err) }));
@@ -1160,6 +1165,17 @@ async function analyze() {
     steps,
   });
   await ensureCanvasReady();
+  const infer = ensureInferenceCanvas(vw, vh);
+  if (infer) {
+    log(t("log.analysisConfig", {
+      steps,
+      sampleFps,
+      width: infer.width,
+      height: infer.height,
+      modelType: getModelTypeLabel(modelTypeResolved || resolveModelType(modelTypeSelection)),
+      backend: modelBackend || "-",
+    }));
+  }
 
   // Frame records
   const frames = [];
@@ -1221,12 +1237,12 @@ async function analyze() {
     }
 
     if (k % 8 === 0) {
-      setProgress((k / steps) * 80); // analysis portion 0-80
+      setProgress(15 + (k / Math.max(1, steps)) * 70); // 15-85 for analysis loop
       await yieldToUI();
     }
   }
 
-  setProgress(82);
+  setProgress(90);
   setStatus("status.computingSummary");
 
   const detectionRatio = frames.length ? detectedFrames / frames.length : 0;

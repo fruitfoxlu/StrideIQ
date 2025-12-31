@@ -33,8 +33,8 @@ export const I18N = {
     input: {
       label: "Choose a side-view running video (mp4/webm):",
       modelLabel: "Model quality",
-      modelAuto: "Auto (Lite on mobile, Full on desktop)",
-      modelLite: "Lite (faster on phones)",
+      modelAuto: "Lite (default, faster)",
+      modelLite: "Lite (default, faster)",
       modelFull: "Full (better accuracy)",
       modelHint: "Current: {modelType} (backend {backend})",
       start: "Start Analysis",
@@ -119,6 +119,8 @@ export const I18N = {
       backendFallback: "WebGL backend init failed, falling back to CPU. Reason: {error}",
       detectError: "estimatePoses error @{time}s: {error}",
       modelInitFailed: "Model init failed: {error}",
+      analysisConfig: "Sampling {steps} frames (~{sampleFps} fps), resize to {width}x{height}, model {modelType} (backend {backend}).",
+      modelInitProgress: "Model init: {stage} ({pct}%)",
     },
     issues: {
       videoTooShort: {
@@ -319,8 +321,8 @@ export const I18N = {
     input: {
       label: "選擇側面跑步影片（mp4/webm）：",
       modelLabel: "模型品質",
-      modelAuto: "自動（手機用 Lite，桌機用 Full）",
-      modelLite: "Lite（手機較快）",
+      modelAuto: "Lite（預設，較快）",
+      modelLite: "Lite（預設，較快）",
       modelFull: "Full（較高準確度）",
       modelHint: "目前：{modelType}（後端 {backend}）",
       start: "開始分析",
@@ -405,6 +407,8 @@ export const I18N = {
       backendFallback: "WebGL 後端初始化失敗，改用 CPU。原因：{error}",
       detectError: "estimatePoses 錯誤 @{time}s: {error}",
       modelInitFailed: "模型初始化失敗：{error}",
+      analysisConfig: "取樣 {steps} 幀（約 {sampleFps} fps），縮放至 {width}x{height}，模型 {modelType}（後端 {backend}）。",
+      modelInitProgress: "模型初始化：{stage}（{pct}%）",
     },
     issues: {
       videoTooShort: {
