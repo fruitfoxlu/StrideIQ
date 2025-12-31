@@ -3,16 +3,20 @@
 // Important: This is a demo MVP. Production quality needs more robust event detection (initial contact / toe-off)
 // and camera calibration (pixel-to-real distance, lens distortion, camera angle compensation, 3D/multi-view, etc).
 
-import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
-import { I18N, DEFAULT_LANG } from "./i18n.js?v=2";
+import * as tf from "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.esm.js";
+import "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.17.0/dist/tf-backend-webgl.esm.js";
+import * as poseDetection from "https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0/dist/pose-detection.esm.js";
+import { I18N, DEFAULT_LANG } from "./i18n.js?v=3";
 
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
-const WASM_ROOT =
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm";
 const DEFAULT_SAMPLE_FPS = 24;
 const DEFAULT_MIN_STEP_SEC = 0.3;
 const DIRECTION_MODE = "auto";
+const MODEL_TYPE_AUTO = "auto";
+const MODEL_TYPE_LITE = "lite";
+const MODEL_TYPE_FULL = "full";
+const MOBILE_MODEL_TYPE = MODEL_TYPE_LITE;
+const DESKTOP_MODEL_TYPE = MODEL_TYPE_FULL;
+const MIN_POSE_SCORE = 0.2;
 const MIN_DURATION_SEC = 3;
 const MIN_DETECTION_RATIO = 0.2;
 const MIN_DETECTED_FRAMES = 8;
@@ -26,6 +30,13 @@ const SLOWMO_FPS_TOLERANCE = 20;
 const SLOWMO_FACTOR = 8;
 const MIN_DIRECTION_SAMPLES = 8;
 const MAX_DIRECTION_FLIP_RATIO = 0.25;
+const POSE_CONNECTIONS = (() => {
+  try {
+    return poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
+  } catch (err) {
+    return [];
+  }
+})();
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -43,15 +54,18 @@ const els = {
   flags: $("#flags"),
   metricsTable: $("#metricsTable tbody"),
   advice: $("#advice"),
+  modelType: $("#modelType"),
 };
 
-let poseLandmarker = null;
-let drawingUtils = null;
+let poseDetector = null;
 let overlayCtx = null;
 let lastAnalysis = null;
 let currentLang = DEFAULT_LANG;
 let lastStatus = null;
 let lastRender = null;
+let modelTypeSelection = MODEL_TYPE_AUTO;
+let modelTypeResolved = null;
+let modelBackend = null;
 
 function getValueByPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), obj);
@@ -161,6 +175,67 @@ function initLanguage() {
   });
 }
 
+function isMobileDevice() {
+  if (navigator.userAgentData?.mobile) return true;
+  const ua = navigator.userAgent || "";
+  return /Android|iPhone|iPad|iPod|IEMobile|Mobile/i.test(ua);
+}
+
+function resolveModelType(type) {
+  if (type === MODEL_TYPE_AUTO) {
+    return isMobileDevice() ? MOBILE_MODEL_TYPE : DESKTOP_MODEL_TYPE;
+  }
+  return type;
+}
+
+function getModelTypeLabel(type) {
+  const label = t(`modelTypes.${type}`);
+  return label || type;
+}
+
+function resetPoseDetector() {
+  if (poseDetector && typeof poseDetector.dispose === "function") {
+    poseDetector.dispose();
+  }
+  poseDetector = null;
+  modelTypeResolved = null;
+  modelBackend = null;
+}
+
+function setModelTypeSelection(next) {
+  if (![MODEL_TYPE_AUTO, MODEL_TYPE_LITE, MODEL_TYPE_FULL].includes(next)) {
+    modelTypeSelection = MODEL_TYPE_AUTO;
+  } else {
+    modelTypeSelection = next;
+  }
+  try {
+    localStorage.setItem("strideiq-model-type", modelTypeSelection);
+  } catch (err) {
+    // Ignore storage errors.
+  }
+  if (els.modelType) {
+    els.modelType.value = modelTypeSelection;
+  }
+  if (poseDetector) {
+    resetPoseDetector();
+  }
+}
+
+function initModelType() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem("strideiq-model-type");
+  } catch (err) {
+    stored = null;
+  }
+  setModelTypeSelection(stored || MODEL_TYPE_AUTO);
+  if (els.modelType) {
+    els.modelType.addEventListener("change", (event) => {
+      setModelTypeSelection(event.target.value);
+    });
+  }
+}
+
 function log(msg) {
   const ts = new Date().toISOString().replace("T", " ").replace("Z", "");
   els.log.textContent += `[${ts}] ${msg}\n`;
@@ -204,43 +279,42 @@ async function ensureCanvasReady() {
   if (vw > 0 && vh > 0) {
     els.overlay.width = vw;
     els.overlay.height = vh;
-    drawingUtils = new DrawingUtils(overlayCtx);
   }
 }
 
 async function loadModel() {
-  if (poseLandmarker) {
+  const nextModelType = resolveModelType(modelTypeSelection);
+  if (poseDetector && modelTypeResolved === nextModelType) {
     setStatus("status.modelAlreadyLoaded");
     return;
   }
-  setStatus("status.modelLoading");
+  if (poseDetector) {
+    resetPoseDetector();
+  }
+  setStatus("status.modelLoading", { modelType: getModelTypeLabel(nextModelType) });
   setProgress(3);
 
-  const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
-
-  // Try GPU first, fall back to CPU if the delegate is unavailable.
   try {
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
-      runningMode: "VIDEO",
-      numPoses: 1,
-      minPoseDetectionConfidence: 0.5,
-      minPosePresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-    setStatus("status.modelLoadedGpu");
+    const ok = await tf.setBackend("webgl");
+    if (!ok) throw new Error("webgl backend unavailable");
+    await tf.ready();
   } catch (err) {
-    log(t("log.gpuFallback", { error: String(err) }));
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
-      runningMode: "VIDEO",
-      numPoses: 1,
-      minPoseDetectionConfidence: 0.5,
-      minPosePresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-    setStatus("status.modelLoadedCpu");
+    log(t("log.backendFallback", { error: String(err) }));
+    await tf.setBackend("cpu");
+    await tf.ready();
   }
+  modelBackend = tf.getBackend();
+
+  poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
+    runtime: "tfjs",
+    modelType: nextModelType,
+    enableSmoothing: false,
+  });
+  modelTypeResolved = nextModelType;
+  setStatus("status.modelLoaded", {
+    modelType: getModelTypeLabel(nextModelType),
+    backend: modelBackend,
+  });
 
   setProgress(8);
   if (els.video.videoWidth > 0) {
@@ -273,19 +347,50 @@ function clearOverlay() {
   overlayCtx.clearRect(0, 0, els.overlay.width, els.overlay.height);
 }
 
+function drawConnectors(ctx, landmarks, connections) {
+  if (!connections.length) return;
+  ctx.save();
+  ctx.strokeStyle = "#3ad0ff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const [i, j] of connections) {
+    const a = landmarks[i];
+    const b = landmarks[j];
+    if (!a || !b) continue;
+    if (!Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
+    if (Number.isFinite(a.score) && a.score < MIN_POSE_SCORE) continue;
+    if (Number.isFinite(b.score) && b.score < MIN_POSE_SCORE) continue;
+    ctx.moveTo(a.x * ctx.canvas.width, a.y * ctx.canvas.height);
+    ctx.lineTo(b.x * ctx.canvas.width, b.y * ctx.canvas.height);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLandmarks(ctx, landmarks) {
+  ctx.save();
+  ctx.fillStyle = "#5be0ff";
+  const radius = 2.5;
+  for (const lm of landmarks) {
+    if (!lm) continue;
+    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) continue;
+    if (Number.isFinite(lm.score) && lm.score < MIN_POSE_SCORE) continue;
+    ctx.beginPath();
+    ctx.arc(lm.x * ctx.canvas.width, lm.y * ctx.canvas.height, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawOverlay(landmarks, direction) {
-  if (!overlayCtx || !drawingUtils || !landmarks) return;
+  if (!overlayCtx || !landmarks) return;
 
   const ctx = overlayCtx;
   ctx.clearRect(0, 0, els.overlay.width, els.overlay.height);
 
   // Skeleton
-  drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-    lineWidth: 3,
-  });
-  drawingUtils.drawLandmarks(landmarks, {
-    radius: (d) => 2 + 2 * clamp01(d.from?.z ?? 0),
-  });
+  drawConnectors(ctx, landmarks, POSE_CONNECTIONS);
+  drawLandmarks(ctx, landmarks);
 
   // Gravity / reference lines
   const hipL = landmarks[23];
@@ -433,6 +538,23 @@ function classifyFootStrike(heel, toe) {
   if (dy > 0.012) return "heel";
   if (dy < -0.012) return "forefoot";
   return "midfoot";
+}
+
+function normalizePose(pose, vw, vh) {
+  if (!pose || !Array.isArray(pose.keypoints) || pose.keypoints.length === 0) return null;
+  const score = Number.isFinite(pose.score)
+    ? pose.score
+    : mean(pose.keypoints.map((kp) => (Number.isFinite(kp.score) ? kp.score : 0)));
+  if (!Number.isFinite(score) || score < MIN_POSE_SCORE) return null;
+  return pose.keypoints.map((kp) => {
+    const x = Number.isFinite(kp.x) && vw > 0 ? kp.x / vw : NaN;
+    const y = Number.isFinite(kp.y) && vh > 0 ? kp.y / vh : NaN;
+    return {
+      x: clamp01(x),
+      y: clamp01(y),
+      score: Number.isFinite(kp.score) ? kp.score : 0,
+    };
+  });
 }
 
 function interpretOverstride(ratio) {
@@ -967,7 +1089,7 @@ async function analyze() {
     return;
   }
 
-  if (!poseLandmarker) {
+  if (!poseDetector) {
     await loadModel();
   }
 
@@ -991,7 +1113,7 @@ async function analyze() {
   let directionLeft = 0;
   let directionRight = 0;
 
-  // Sample frames using seek + detectForVideo.
+  // Sample frames using seek + estimatePoses.
   // Long videos may take time; consider trimming for faster analysis.
   for (let k = 0; k <= steps; k++) {
     const timeSec = Math.min(duration, k * dt);
@@ -1000,15 +1122,19 @@ async function analyze() {
     await seekTo(els.video, timeSec);
 
     // Detect
-    let result = null;
+    let poses = null;
     try {
-      result = poseLandmarker.detectForVideo(els.video, timeSec * 1000);
+      poses = await poseDetector.estimatePoses(els.video, {
+        maxPoses: 1,
+        flipHorizontal: false,
+      });
     } catch (err) {
       log(t("log.detectError", { time: timeSec.toFixed(2), error: String(err) }));
-      result = null;
+      poses = null;
     }
 
-    const landmarks = result?.landmarks?.[0] ?? null;
+    const pose = poses?.[0] ?? null;
+    const landmarks = normalizePose(pose, vw, vh);
     if (landmarks) {
       detectedFrames += 1;
       const sign = directionSign(landmarks);
@@ -1125,9 +1251,10 @@ async function analyze() {
       direction,
       directionMode: DIRECTION_MODE,
       model: {
-        name: "MediaPipe PoseLandmarker Lite",
-        modelUrl: MODEL_URL,
-        wasmRoot: WASM_ROOT,
+        name: "TensorFlow.js BlazePose",
+        runtime: "tfjs",
+        modelType: modelTypeResolved,
+        backend: modelBackend,
       },
       notes: getArray("meta.notes"),
     },
@@ -1198,6 +1325,7 @@ els.btnDownload.addEventListener("click", () => {
 
 // Initial UI state
 initLanguage();
+initModelType();
 setStatus("status.waitingVideo");
 setProgress(0);
 maybeEnableAnalyze();

@@ -10,7 +10,7 @@ export const I18N = {
     },
     ui: {
       title: "Running Form Analysis Web App (MVP)",
-      subtitlePrefix: "Browser-only (no upload): uses MediaPipe PoseLandmarker in the browser and simple rules to estimate",
+      subtitlePrefix: "Browser-only (no upload): uses TensorFlow.js BlazePose in the browser and simple rules to estimate",
       subtitleMetrics: "overstride / knee extension / trunk lean / foot strike / leg retraction",
       subtitleSuffix: ".",
       notice: "Note: This is a deployable baseline demo. Running form and running economy are complex; this tool provides approximate estimates and trend signals only.",
@@ -27,14 +27,23 @@ export const I18N = {
       item2: "1080p or higher at 30 fps (video your browser can decode), or 240 fps slow-mo (iPhone Slo-mo).",
       item3: "At least 3 seconds of real-time running (4-6 strides).",
       exampleTitle: "Example: Good capture framing",
-      exampleNote: "Example only (not analyzable). Follow this framing for your own video.",
+      exampleNote: "Example only. Follow this framing for your own video.",
       exampleIframeTitle: "Running capture example",
     },
     input: {
       label: "Choose a side-view running video (mp4/webm):",
+      modelLabel: "Model quality",
+      modelAuto: "Auto (Lite on mobile, Full on desktop)",
+      modelLite: "Lite (faster on phones)",
+      modelFull: "Full (better accuracy)",
       start: "Start Analysis",
       download: "Download JSON",
       debug: "View analysis log (debug)",
+    },
+    modelTypes: {
+      auto: "Auto",
+      lite: "Lite",
+      full: "Full",
     },
     overlay: {
       hint: "Suggested capture: phone fixed, camera height near hip, side view, good lighting, subject fills ~60-90% of frame height.",
@@ -61,7 +70,7 @@ export const I18N = {
       directionModeAuto: "auto",
     },
     footer: {
-      tech: "Tech: MediaPipe PoseLandmarker (Web). This project is a deployable MVP reference for validating product flow and early quantification.",
+      tech: "Tech: TensorFlow.js BlazePose (Web). This project is a deployable MVP reference for validating product flow and early quantification.",
       author: "Author: Royce Lu.",
       pacePrefix: "Pace calculator:",
       feedbackPrefix: "Feedback:",
@@ -79,9 +88,8 @@ export const I18N = {
       waitingVideo: "Status: waiting for video",
       checkingRequirements: "Status: checking video requirements...",
       checkingFps: "Status: checking video frame rate...",
-      modelLoading: "Status: loading model (WASM + model file)...",
-      modelLoadedGpu: "Status: model loaded (GPU delegate).",
-      modelLoadedCpu: "Status: model loaded (CPU delegate).",
+      modelLoading: "Status: loading pose model ({modelType})...",
+      modelLoaded: "Status: model loaded ({modelType}, backend {backend}).",
       modelAlreadyLoaded: "Status: model already loaded (skipped).",
       analysisStarted: "Status: analysis started: duration={duration}s, sampleFps={sampleFps}, steps~{steps}",
       computingSummary: "Status: computing gait events and summary...",
@@ -107,8 +115,8 @@ export const I18N = {
       analysisFailed: "Analysis failed: {error}. Try a clearer, longer video or another browser/device.",
     },
     log: {
-      gpuFallback: "GPU delegate init failed, falling back to CPU. Reason: {error}",
-      detectError: "detectForVideo error @{time}s: {error}",
+      backendFallback: "WebGL backend init failed, falling back to CPU. Reason: {error}",
+      detectError: "estimatePoses error @{time}s: {error}",
     },
     issues: {
       videoTooShort: {
@@ -286,7 +294,7 @@ export const I18N = {
     },
     ui: {
       title: "跑姿分析 Web App（MVP）",
-      subtitlePrefix: "純前端（不需上傳）：使用 MediaPipe PoseLandmarker 在瀏覽器端，以簡化規則估算",
+      subtitlePrefix: "純前端（不需上傳）：使用 TensorFlow.js BlazePose 在瀏覽器端，以簡化規則估算",
       subtitleMetrics: "overstride / 膝伸直 / 軀幹傾角 / 著地型態 / 腳回收",
       subtitleSuffix: "。",
       notice: "注意：這是可部署的基礎示範版本。跑姿與跑步經濟性很複雜，本工具僅提供近似估算與趨勢參考。",
@@ -303,14 +311,23 @@ export const I18N = {
       item2: "可被瀏覽器解碼的 1080p 以上 30 fps 影片，或 240 fps 慢動作（iPhone Slo-mo）。",
       item3: "至少 3 秒真實時間跑步片段（4–6 步）。",
       exampleTitle: "範例：良好的取景角度",
-      exampleNote: "僅供示意（不可直接分析）。請參考此取景拍攝。",
+      exampleNote: "僅供示意。請參考此取景拍攝。",
       exampleIframeTitle: "跑步拍攝範例",
     },
     input: {
       label: "選擇側面跑步影片（mp4/webm）：",
+      modelLabel: "模型品質",
+      modelAuto: "自動（手機用 Lite，桌機用 Full）",
+      modelLite: "Lite（手機較快）",
+      modelFull: "Full（較高準確度）",
       start: "開始分析",
       download: "下載 JSON",
       debug: "檢視分析日誌（debug）",
+    },
+    modelTypes: {
+      auto: "自動",
+      lite: "Lite",
+      full: "Full",
     },
     overlay: {
       hint: "建議拍攝：手機固定、鏡頭高度接近髖部、側面拍攝、光線充足、人物佔畫面高度約 60–90%。",
@@ -337,7 +354,7 @@ export const I18N = {
       directionModeAuto: "自動",
     },
     footer: {
-      tech: "技術：MediaPipe PoseLandmarker（Web）。本專案為可部署 MVP 參考，用於驗證流程與早期量化。",
+      tech: "技術：TensorFlow.js BlazePose（Web）。本專案為可部署 MVP 參考，用於驗證流程與早期量化。",
       author: "作者：Royce Lu。",
       pacePrefix: "配速計算器：",
       feedbackPrefix: "意見回饋：",
@@ -355,9 +372,8 @@ export const I18N = {
       waitingVideo: "狀態：等待上傳",
       checkingRequirements: "狀態：檢查影片需求...",
       checkingFps: "狀態：檢查影片 FPS...",
-      modelLoading: "狀態：載入模型中（WASM + 模型檔）...",
-      modelLoadedGpu: "狀態：模型已載入（GPU delegate）。",
-      modelLoadedCpu: "狀態：模型已載入（CPU delegate）。",
+      modelLoading: "狀態：載入姿勢模型（{modelType}）...",
+      modelLoaded: "狀態：模型已載入（{modelType}，後端 {backend}）。",
       modelAlreadyLoaded: "狀態：模型已載入（略過）。",
       analysisStarted: "狀態：分析開始：影片長度 {duration}s，取樣 {sampleFps} fps，步數約 {steps}",
       computingSummary: "狀態：計算步態事件與摘要...",
@@ -383,8 +399,8 @@ export const I18N = {
       analysisFailed: "分析失敗：{error}。請嘗試更清晰或更長的影片，或改用其他瀏覽器/裝置。",
     },
     log: {
-      gpuFallback: "GPU delegate 初始化失敗，改用 CPU。原因：{error}",
-      detectError: "detectForVideo 錯誤 @{time}s: {error}",
+      backendFallback: "WebGL 後端初始化失敗，改用 CPU。原因：{error}",
+      detectError: "estimatePoses 錯誤 @{time}s: {error}",
     },
     issues: {
       videoTooShort: {

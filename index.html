@@ -17,7 +17,7 @@
       <button class="lang-btn" type="button" data-lang="zh-Hant" data-i18n="lang.chinese">中文</button>
     </div>
     <p class="sub">
-      <span data-i18n="ui.subtitlePrefix">Browser-only (no upload): uses MediaPipe PoseLandmarker in the browser and simple rules to estimate</span>
+      <span data-i18n="ui.subtitlePrefix">Browser-only (no upload): uses TensorFlow.js BlazePose in the browser and simple rules to estimate</span>
       <span class="mono" data-i18n="ui.subtitleMetrics">overstride / knee extension / trunk lean / foot strike / leg retraction</span>
       <span data-i18n="ui.subtitleSuffix">.</span>
     </p>
@@ -50,7 +50,7 @@
             allowfullscreen
           ></iframe>
         </div>
-        <div class="requirements-note" data-i18n="requirements.exampleNote">Example only (not analyzable). Follow this framing for your own video.</div>
+        <div class="requirements-note" data-i18n="requirements.exampleNote">Example only. Follow this framing for your own video.</div>
       </div>
     </section>
 
@@ -60,6 +60,15 @@
       <label class="field">
         <span data-i18n="input.label">Choose a side-view running video (mp4/webm):</span>
         <input id="videoFile" type="file" accept="video/*" />
+      </label>
+
+      <label class="field">
+        <span data-i18n="input.modelLabel">Model quality</span>
+        <select id="modelType">
+          <option value="auto" data-i18n="input.modelAuto">Auto (Lite on mobile, Full on desktop)</option>
+          <option value="lite" data-i18n="input.modelLite">Lite (faster on phones)</option>
+          <option value="full" data-i18n="input.modelFull">Full (better accuracy)</option>
+        </select>
       </label>
 
       <div class="row">
@@ -127,7 +136,7 @@
 
   <footer class="container footer">
     <p class="muted" data-i18n="footer.tech">
-      Tech: MediaPipe PoseLandmarker (Web).
+      Tech: TensorFlow.js BlazePose (Web).
       This project is a deployable MVP reference for validating product flow and early quantification.
     </p>
     <p class="muted" data-i18n="footer.author">Author: Royce Lu.</p>
@@ -142,6 +151,6 @@
     </p>
   </footer>
 
-  <script type="module" src="./app.js?v=3"></script>
+  <script type="module" src="./app.js?v=4"></script>
 </body>
 </html>

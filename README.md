@@ -2,7 +2,7 @@
 
 This is a deployable MVP with the following features:
 
-- Uses **MediaPipe PoseLandmarker (Web)** to detect 33 pose landmarks in the browser
+- Uses **TensorFlow.js BlazePose (Web)** to detect 33 pose landmarks in the browser
 - Simple, rule-based analysis (overstride, knee angle, trunk lean, heel-strike rate, pre-contact retraction speed)
 - Video stays local (no upload), suitable for PoC and early product validation
 - Defaults: 24 FPS sampling and a 0.30s minimum step interval to reduce double counting
@@ -25,16 +25,15 @@ Note: This is a demo MVP. Production quality usually needs:
 
 - `index.html`: UI
 - `style.css`: styling
-- `app.js`: MediaPipe model loading, frame sampling, metrics, and UI updates
+- `app.js`: BlazePose model loading, frame sampling, metrics, and UI updates
 - `i18n.js`: language strings for English/Traditional Chinese
 - `Dockerfile`: container for static hosting
 
-## Video Requirements (enforced)
+## Video Requirements
 
 - Side view, single runner, consistent direction (left-to-right or right-to-left)
-- iPhone default Video (1080p @ 30 fps) or iPhone Slo-mo (1080p @ 240 fps; must be true 240 fps files)
+- 1080p or higher at 30 fps (video your browser can decode), or 240 fps slow-mo (iPhone Slo-mo)
 - At least 3 seconds of running (4-6 strides)
-- iPhone defaults: 1080p@30 (Video) or 1080p@240 (Slo-mo) in Settings > Camera
 
 ## Local Development (recommended)
 
@@ -74,12 +73,12 @@ Because all analysis runs in the browser, any static host works:
 ## Data & Privacy
 
 - Video analysis runs in the browser; nothing is uploaded unless you add a backend
-- Model and WASM are fetched from CDN URLs in `app.js` (you can self-host if needed)
+- Model and runtime assets are fetched from CDN URLs in `app.js` (you can self-host if needed)
 
 ## License
 
 - App code: add your own LICENSE as needed
-- MediaPipe / model assets: follow Google/MediaPipe licensing terms
+- TensorFlow.js / model assets: follow Google/TensorFlow licensing terms
 
 ## Feedback
 
