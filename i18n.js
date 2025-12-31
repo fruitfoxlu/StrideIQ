@@ -122,6 +122,7 @@ export const I18N = {
       analysisConfig: "Sampling {steps} frames (~{sampleFps} fps), resize to {width}x{height}, model {modelType} (backend {backend}).",
       modelInitProgress: "Model init: {stage}",
       analysisProgress: "Analysis progress: {pct}%",
+      modelDownloadProgress: "Downloading model {name}: {pct}%",
     },
     issues: {
       videoTooShort: {
@@ -411,6 +412,7 @@ export const I18N = {
       analysisConfig: "取樣 {steps} 幀（約 {sampleFps} fps），縮放至 {width}x{height}，模型 {modelType}（後端 {backend}）。",
       modelInitProgress: "模型初始化：{stage}",
       analysisProgress: "分析進度：{pct}%",
+      modelDownloadProgress: "下載模型 {name}：{pct}%",
     },
     issues: {
       videoTooShort: {

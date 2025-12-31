@@ -34,6 +34,7 @@ const MAX_SAMPLES_MOBILE = 150;
 const MAX_SAMPLES_DESKTOP = 240;
 const INFER_LONG_EDGE_MOBILE = 384;
 const INFER_LONG_EDGE_DESKTOP = 640;
+const MODEL_URL_PATTERN = /blazepose/i;
 const POSE_CONNECTIONS = (() => {
   try {
     return poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
@@ -73,6 +74,7 @@ let modelTypeResolved = null;
 let modelBackend = null;
 let inferenceCanvas = null;
 let inferenceCtx = null;
+let fetchPatched = false;
 
 function getValueByPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), obj);
@@ -130,6 +132,61 @@ function applyTranslations() {
   if (lastRender?.type === "analyzing") {
     els.summary.textContent = t("results.analyzing");
   }
+}
+
+function installFetchProgress() {
+  if (fetchPatched || typeof fetch !== "function") return;
+  fetchPatched = true;
+  const originalFetch = fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input?.url;
+    const isModel = typeof url === "string" && MODEL_URL_PATTERN.test(url);
+    if (!isModel) return originalFetch(input, init);
+
+    const name = (() => {
+      try {
+        const u = new URL(url);
+        const parts = u.pathname.split("/").filter(Boolean);
+        return parts.slice(-3).join("/") || url;
+      } catch (err) {
+        return url;
+      }
+    })();
+
+    const res = await originalFetch(input, init);
+    const lenHeader = res.headers?.get?.("content-length");
+    const total = lenHeader ? parseInt(lenHeader, 10) : null;
+    if (!res.body || typeof res.body.tee !== "function") {
+      return res;
+    }
+
+    const [streamForUse, streamForMonitor] = res.body.tee();
+    if (total && Number.isFinite(total) && total > 0) {
+      const reader = streamForMonitor.getReader();
+      let received = 0;
+      let lastPct = 0;
+      const pump = () => reader.read().then(({ done, value }) => {
+        if (done) {
+          log(t("log.modelDownloadProgress", { name, pct: 100 }));
+          return;
+        }
+        received += value?.byteLength || 0;
+        const pct = Math.floor((received / total) * 100);
+        if (pct >= lastPct + 10) {
+          lastPct = pct;
+          log(t("log.modelDownloadProgress", { name, pct }));
+        }
+        return pump();
+      }).catch(() => {});
+      pump();
+    }
+
+    return new Response(streamForUse, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  };
 }
 
 function setLanguage(lang) {
@@ -326,6 +383,8 @@ async function loadModel() {
   modelBackend = tf.getBackend();
   setProgress(10);
   log(t("log.modelInitProgress", { stage: "downloading model" }));
+
+  installFetchProgress();
 
   try {
     poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
