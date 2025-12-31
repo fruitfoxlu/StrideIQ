@@ -3,10 +3,10 @@
 // Important: This is a demo MVP. Production quality needs more robust event detection (initial contact / toe-off)
 // and camera calibration (pixel-to-real distance, lens distortion, camera angle compensation, 3D/multi-view, etc).
 
-import * as tf from "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.esm.js";
-import "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.17.0/dist/tf-backend-webgl.esm.js";
-import * as poseDetection from "https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0/dist/pose-detection.esm.js";
 import { I18N, DEFAULT_LANG } from "./i18n.js?v=3";
+
+const tf = window.tf;
+const poseDetection = window.poseDetection;
 
 const DEFAULT_SAMPLE_FPS = 24;
 const DEFAULT_MIN_STEP_SEC = 0.3;
@@ -30,6 +30,10 @@ const SLOWMO_FPS_TOLERANCE = 20;
 const SLOWMO_FACTOR = 8;
 const MIN_DIRECTION_SAMPLES = 8;
 const MAX_DIRECTION_FLIP_RATIO = 0.25;
+const MAX_SAMPLES_MOBILE = 150;
+const MAX_SAMPLES_DESKTOP = 240;
+const INFER_LONG_EDGE_MOBILE = 384;
+const INFER_LONG_EDGE_DESKTOP = 640;
 const POSE_CONNECTIONS = (() => {
   try {
     return poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
@@ -55,6 +59,7 @@ const els = {
   metricsTable: $("#metricsTable tbody"),
   advice: $("#advice"),
   modelType: $("#modelType"),
+  modelHint: $("#modelHint"),
 };
 
 let poseDetector = null;
@@ -66,6 +71,8 @@ let lastRender = null;
 let modelTypeSelection = MODEL_TYPE_AUTO;
 let modelTypeResolved = null;
 let modelBackend = null;
+let inferenceCanvas = null;
+let inferenceCtx = null;
 
 function getValueByPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), obj);
@@ -219,6 +226,7 @@ function setModelTypeSelection(next) {
   if (poseDetector) {
     resetPoseDetector();
   }
+  updateModelHint();
 }
 
 function initModelType() {
@@ -234,6 +242,17 @@ function initModelType() {
       setModelTypeSelection(event.target.value);
     });
   }
+  updateModelHint();
+}
+
+function updateModelHint() {
+  if (!els.modelHint) return;
+  const resolved = resolveModelType(modelTypeSelection);
+  const backend = modelBackend || "-";
+  els.modelHint.textContent = t("input.modelHint", {
+    modelType: getModelTypeLabel(resolved),
+    backend,
+  });
 }
 
 function log(msg) {
@@ -305,16 +324,25 @@ async function loadModel() {
   }
   modelBackend = tf.getBackend();
 
-  poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
-    runtime: "tfjs",
-    modelType: nextModelType,
-    enableSmoothing: false,
-  });
-  modelTypeResolved = nextModelType;
-  setStatus("status.modelLoaded", {
-    modelType: getModelTypeLabel(nextModelType),
-    backend: modelBackend,
-  });
+  try {
+    poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
+      runtime: "tfjs",
+      modelType: nextModelType,
+      enableSmoothing: false,
+    });
+    modelTypeResolved = nextModelType;
+    setStatus("status.modelLoaded", {
+      modelType: getModelTypeLabel(nextModelType),
+      backend: modelBackend,
+    });
+    updateModelHint();
+  } catch (err) {
+    log(t("log.modelInitFailed", { error: String(err) }));
+    resetPoseDetector();
+    setStatus("status.modelLoadFailed", { error: String(err) });
+    alert(t("alerts.modelLoadFailed"));
+    throw err;
+  }
 
   setProgress(8);
   if (els.video.videoWidth > 0) {
@@ -380,6 +408,25 @@ function drawLandmarks(ctx, landmarks) {
     ctx.fill();
   }
   ctx.restore();
+}
+
+function ensureInferenceCanvas(vw, vh) {
+  if (!inferenceCanvas) {
+    inferenceCanvas = document.createElement("canvas");
+    inferenceCtx = inferenceCanvas.getContext("2d");
+  }
+  const longEdge = Math.max(vw, vh);
+  const shortEdge = Math.min(vw, vh);
+  if (longEdge === 0 || shortEdge === 0) return null;
+  const targetLong = isMobileDevice() ? INFER_LONG_EDGE_MOBILE : INFER_LONG_EDGE_DESKTOP;
+  const scale = Math.min(1, targetLong / longEdge);
+  const outW = Math.max(1, Math.round(vw * scale));
+  const outH = Math.max(1, Math.round(vh * scale));
+  if (inferenceCanvas.width !== outW || inferenceCanvas.height !== outH) {
+    inferenceCanvas.width = outW;
+    inferenceCanvas.height = outH;
+  }
+  return { canvas: inferenceCanvas, ctx: inferenceCtx, width: outW, height: outH };
 }
 
 function drawOverlay(landmarks, direction) {
@@ -1090,13 +1137,22 @@ async function analyze() {
   }
 
   if (!poseDetector) {
-    await loadModel();
+    try {
+      await loadModel();
+    } catch (err) {
+      return;
+    }
   }
 
   const sampleFps = DEFAULT_SAMPLE_FPS;
   const minStepSec = DEFAULT_MIN_STEP_SEC * slowMoFactor;
-  const dt = 1 / Math.max(5, Math.min(60, sampleFps));
-  const steps = Math.max(1, Math.ceil(duration / dt));
+  const dtNominal = 1 / Math.max(5, Math.min(60, sampleFps));
+  const maxSamples = isMobileDevice() ? MAX_SAMPLES_MOBILE : MAX_SAMPLES_DESKTOP;
+  let steps = Math.max(1, Math.ceil(duration / dtNominal));
+  if (steps > maxSamples) {
+    steps = maxSamples;
+  }
+  const dt = duration / Math.max(1, steps);
 
   setStatus("status.analysisStarted", {
     duration: duration.toFixed(2),
@@ -1123,18 +1179,23 @@ async function analyze() {
 
     // Detect
     let poses = null;
+    let landmarks = null;
+    const infer = ensureInferenceCanvas(vw, vh);
     try {
-      poses = await poseDetector.estimatePoses(els.video, {
-        maxPoses: 1,
-        flipHorizontal: false,
-      });
+      if (infer) {
+        infer.ctx.drawImage(els.video, 0, 0, infer.width, infer.height);
+        poses = await poseDetector.estimatePoses(infer.canvas, {
+          maxPoses: 1,
+          flipHorizontal: false,
+        });
+        const pose = poses?.[0] ?? null;
+        landmarks = normalizePose(pose, infer.width, infer.height);
+      }
     } catch (err) {
       log(t("log.detectError", { time: timeSec.toFixed(2), error: String(err) }));
       poses = null;
+      landmarks = null;
     }
-
-    const pose = poses?.[0] ?? null;
-    const landmarks = normalizePose(pose, vw, vh);
     if (landmarks) {
       detectedFrames += 1;
       const sign = directionSign(landmarks);

@@ -36,6 +36,7 @@ export const I18N = {
       modelAuto: "Auto (Lite on mobile, Full on desktop)",
       modelLite: "Lite (faster on phones)",
       modelFull: "Full (better accuracy)",
+      modelHint: "Current: {modelType} (backend {backend})",
       start: "Start Analysis",
       download: "Download JSON",
       debug: "View analysis log (debug)",
@@ -117,6 +118,7 @@ export const I18N = {
     log: {
       backendFallback: "WebGL backend init failed, falling back to CPU. Reason: {error}",
       detectError: "estimatePoses error @{time}s: {error}",
+      modelInitFailed: "Model init failed: {error}",
     },
     issues: {
       videoTooShort: {
@@ -320,6 +322,7 @@ export const I18N = {
       modelAuto: "自動（手機用 Lite，桌機用 Full）",
       modelLite: "Lite（手機較快）",
       modelFull: "Full（較高準確度）",
+      modelHint: "目前：{modelType}（後端 {backend}）",
       start: "開始分析",
       download: "下載 JSON",
       debug: "檢視分析日誌（debug）",
@@ -401,6 +404,7 @@ export const I18N = {
     log: {
       backendFallback: "WebGL 後端初始化失敗，改用 CPU。原因：{error}",
       detectError: "estimatePoses 錯誤 @{time}s: {error}",
+      modelInitFailed: "模型初始化失敗：{error}",
     },
     issues: {
       videoTooShort: {

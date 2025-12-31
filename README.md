@@ -2,7 +2,7 @@
 
 This is a deployable MVP with the following features:
 
-- Uses **TensorFlow.js BlazePose (Web)** to detect 33 pose landmarks in the browser
+- Uses **TensorFlow.js BlazePose (Web)** to detect 33 pose landmarks in the browser (TF.js + pose-detection vendored under `vendor/`)
 - Simple, rule-based analysis (overstride, knee angle, trunk lean, heel-strike rate, pre-contact retraction speed)
 - Video stays local (no upload), suitable for PoC and early product validation
 - Defaults: 24 FPS sampling and a 0.30s minimum step interval to reduce double counting

@@ -95,6 +95,8 @@ header h1 {
   color: var(--text);
 }
 
+.small { font-size: 12px; }
+
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 
 button {
