@@ -29,6 +29,11 @@ const SLOWMO_FPS = 240;
 const NORMAL_FPS_TOLERANCE = 6;
 const SLOWMO_FPS_TOLERANCE = 20;
 const SLOWMO_FACTOR = 8;
+const FPS_PROBE_MS_MOBILE = 350;
+const FPS_PROBE_MS_DESKTOP = 600;
+const FPS_PROBE_TIMEOUT_EXTRA_MS = 600;
+const FPS_MIN_FRAMES_MOBILE = 4;
+const FPS_MIN_FRAMES_DESKTOP = 8;
 const MIN_DIRECTION_SAMPLES = 8;
 const MAX_DIRECTION_FLIP_RATIO = 0.25;
 const MAX_SAMPLES_MOBILE = 150;
@@ -1041,8 +1046,10 @@ async function estimateVideoFps(video) {
     return NaN;
   }
 
-  const sampleMs = 600;
-  const minFrames = 8;
+  const mobile = isMobileDevice();
+  const sampleMs = mobile ? FPS_PROBE_MS_MOBILE : FPS_PROBE_MS_DESKTOP;
+  const minFrames = mobile ? FPS_MIN_FRAMES_MOBILE : FPS_MIN_FRAMES_DESKTOP;
+  const timeoutMs = sampleMs + FPS_PROBE_TIMEOUT_EXTRA_MS;
   const originalTime = video.currentTime;
   const wasPaused = video.paused;
   const wasMuted = video.muted;
@@ -1057,6 +1064,7 @@ async function estimateVideoFps(video) {
   let rafId = null;
   const qualityStart = supportsQuality ? video.getVideoPlaybackQuality().totalVideoFrames : 0;
   let qualityEnd = qualityStart;
+  let cleaned = false;
 
   const onFrame = (now) => {
     if (!start) start = now;
@@ -1079,47 +1087,73 @@ async function estimateVideoFps(video) {
   }
   log(`Debug: video.play() resolved in ${Math.round(performance.now() - playStart)}ms (paused=${video.paused}, readyState=${video.readyState})`);
 
-  await sleep(sampleMs + 150);
-
-  if (supportsRvfc && typeof video.cancelVideoFrameCallback === "function" && rafId !== null) {
-    video.cancelVideoFrameCallback(rafId);
-  }
-
-  video.pause();
-
-  const elapsedMs = start ? performance.now() - start : (performance.now() - startWall);
-  let fps = NaN;
-  let method = "none";
-  if (elapsedMs > 0) {
-    if (supportsRvfc && frameCount >= minFrames) {
-      fps = frameCount / (elapsedMs / 1000);
-      method = "rvfc";
-    } else if (supportsQuality) {
-      qualityEnd = video.getVideoPlaybackQuality().totalVideoFrames;
-      const diff = qualityEnd - qualityStart;
-      if (diff >= minFrames) {
-        fps = diff / (elapsedMs / 1000);
-        method = "playbackQuality";
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (supportsRvfc && typeof video.cancelVideoFrameCallback === "function" && rafId !== null) {
+      video.cancelVideoFrameCallback(rafId);
+    }
+    video.pause();
+    video.currentTime = originalTime;
+    video.muted = wasMuted;
+    video.playbackRate = wasPlaybackRate;
+    if (!wasPaused) {
+      try {
+        video.play();
+      } catch (err) {
+        // Ignore resume errors.
       }
     }
-  }
+  };
 
-  log(
-    `Debug: FPS probe done method=${method}, frames=${frameCount}, qualityDelta=${qualityEnd - qualityStart}, elapsed=${Math.round(elapsedMs)}ms, fps=${formatNum(fps, 2)}`
-  );
-
-  video.currentTime = originalTime;
-  video.muted = wasMuted;
-  video.playbackRate = wasPlaybackRate;
-  if (!wasPaused) {
+  const probe = async () => {
     try {
-      await video.play();
+      await sleep(sampleMs + 150);
+      const elapsedMs = start ? performance.now() - start : (performance.now() - startWall);
+      let fps = NaN;
+      let method = "none";
+      if (elapsedMs > 0) {
+        if (supportsRvfc && frameCount >= minFrames) {
+          fps = frameCount / (elapsedMs / 1000);
+          method = "rvfc";
+        } else if (supportsQuality) {
+          qualityEnd = video.getVideoPlaybackQuality().totalVideoFrames;
+          const diff = qualityEnd - qualityStart;
+          if (diff >= minFrames) {
+            fps = diff / (elapsedMs / 1000);
+            method = "playbackQuality";
+          }
+        }
+      }
+
+      log(
+        `Debug: FPS probe done method=${method}, frames=${frameCount}, qualityDelta=${qualityEnd - qualityStart}, elapsed=${Math.round(elapsedMs)}ms, fps=${formatNum(fps, 2)}`
+      );
+      return { fps, method, elapsedMs };
     } catch (err) {
-      // Ignore resume errors.
+      log(`Debug: FPS probe error: ${String(err)}`);
+      return { fps: mobile ? MOBILE_FPS_FALLBACK : NaN, method: "error", elapsedMs: performance.now() - startWall };
+    } finally {
+      cleanup();
     }
+  };
+
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => {
+      log(`Debug: FPS probe timeout after ${timeoutMs}ms; using fallback ${MOBILE_FPS_FALLBACK}fps`);
+      cleanup();
+      resolve({ fps: MOBILE_FPS_FALLBACK, method: "timeout", elapsedMs: timeoutMs });
+    }, timeoutMs);
+  });
+
+  const result = await Promise.race([probe(), timeout]);
+
+  if (!Number.isFinite(result.fps) && mobile) {
+    log(`Debug: FPS probe returned NaN; using mobile fallback ${MOBILE_FPS_FALLBACK}fps`);
+    return MOBILE_FPS_FALLBACK;
   }
 
-  return fps;
+  return result.fps;
 }
 
 function downloadJson(obj, filename) {
