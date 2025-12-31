@@ -14,7 +14,6 @@ export const I18N = {
       subtitleMetrics: "overstride / knee extension / trunk lean / foot strike / leg retraction",
       subtitleSuffix: ".",
       mobileNotice: "Heads up: phone analysis can be slow and battery-heavy. For a faster experience, use a laptop/desktop or an iPad Pro/mini. Everything runs locally for privacy and zero server/storage cost.",
-      notice: "Note: This is a deployable baseline demo. Running form and running economy are complex; this tool provides approximate estimates and trend signals only.",
     },
     sections: {
       requirements: "1) Requirements & Example",
@@ -306,7 +305,6 @@ export const I18N = {
       subtitleMetrics: "overstride / 膝伸直 / 軀幹傾角 / 著地型態 / 腳回收",
       subtitleSuffix: "。",
       mobileNotice: "提醒：手機端分析較慢且耗電，建議改用筆電/桌機或 iPad Pro/mini 開啟。所有運算在本機完成，隱私保護且不需雲端存儲或額外費用。",
-      notice: "注意：這是可部署的基礎示範版本。跑姿與跑步經濟性很複雜，本工具僅提供近似估算與趨勢參考。",
     },
     sections: {
       requirements: "1) 拍攝需求與範例",
