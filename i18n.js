@@ -104,7 +104,7 @@ export const I18N = {
       chooseVideo: "Please choose a video file first.",
       videoNotLoaded: "Video is not fully loaded yet. Please try again in a moment.",
       modelLoadFailed: "Model load failed. Check your network or try Chrome/Edge.",
-      analysisFailed: "Analysis failed. Try a clearer, longer video or Chrome/Edge.",
+      analysisFailed: "Analysis failed: {error}. Try a clearer, longer video or another browser/device.",
     },
     log: {
       gpuFallback: "GPU delegate init failed, falling back to CPU. Reason: {error}",
@@ -380,7 +380,7 @@ export const I18N = {
       chooseVideo: "請先選擇影片檔。",
       videoNotLoaded: "影片尚未載入完成，請稍候再試。",
       modelLoadFailed: "模型載入失敗，請檢查網路或改用 Chrome/Edge。",
-      analysisFailed: "分析失敗。請嘗試更清晰或更長的影片，或改用 Chrome/Edge。",
+      analysisFailed: "分析失敗：{error}。請嘗試更清晰或更長的影片，或改用其他瀏覽器/裝置。",
     },
     log: {
       gpuFallback: "GPU delegate 初始化失敗，改用 CPU。原因：{error}",

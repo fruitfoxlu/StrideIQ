@@ -1185,7 +1185,7 @@ els.btnAnalyze.addEventListener("click", async () => {
   } catch (e) {
     console.error(e);
     setStatus("status.analysisFailed", { error: String(e) });
-    alert(t("alerts.analysisFailed"));
+    alert(t("alerts.analysisFailed", { error: String(e) }));
   } finally {
     els.btnAnalyze.disabled = false;
   }
