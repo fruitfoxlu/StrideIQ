@@ -4,6 +4,7 @@
 // and camera calibration (pixel-to-real distance, lens distortion, camera angle compensation, 3D/multi-view, etc).
 
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
+import { I18N, DEFAULT_LANG } from "./i18n.js?v=2";
 
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
@@ -34,6 +35,7 @@ const els = {
   overlay: $("#overlay"),
   btnAnalyze: $("#btnAnalyze"),
   btnDownload: $("#btnDownload"),
+  langButtons: document.querySelectorAll("[data-lang]"),
   progressBar: $("#progressBar"),
   status: $("#status"),
   log: $("#log"),
@@ -47,16 +49,131 @@ let poseLandmarker = null;
 let drawingUtils = null;
 let overlayCtx = null;
 let lastAnalysis = null;
+let currentLang = DEFAULT_LANG;
+let lastStatus = null;
+let lastRender = null;
+
+function getValueByPath(obj, key) {
+  return key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), obj);
+}
+
+function interpolate(str, vars = {}) {
+  return str.replace(/\{(\w+)\}/g, (_, key) => (vars[key] !== undefined ? String(vars[key]) : `{${key}}`));
+}
+
+function t(key, vars = {}) {
+  const current = getValueByPath(I18N[currentLang], key);
+  const fallback = getValueByPath(I18N[DEFAULT_LANG], key);
+  const value = current !== null ? current : fallback;
+  if (typeof value !== "string") return "";
+  return interpolate(value, vars);
+}
+
+function getArray(key, vars = {}) {
+  const current = getValueByPath(I18N[currentLang], key);
+  const fallback = getValueByPath(I18N[DEFAULT_LANG], key);
+  const value = current !== null ? current : fallback;
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => interpolate(String(item), vars));
+}
+
+function applyTranslations() {
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.dataset.i18n;
+    const text = t(key);
+    const attr = el.dataset.i18nAttr;
+    if (attr) {
+      el.setAttribute(attr, text);
+    } else {
+      el.textContent = text;
+    }
+  });
+
+  els.langButtons.forEach((btn) => {
+    const isActive = btn.dataset.lang === currentLang;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+
+  if (lastStatus) {
+    setStatus(lastStatus.key, lastStatus.vars, { silent: true });
+  }
+
+  if (lastRender?.type === "analysis") {
+    renderResults(lastRender.analysis);
+  }
+  if (lastRender?.type === "issue") {
+    renderIssue(lastRender.key, lastRender.vars);
+  }
+  if (lastRender?.type === "analyzing") {
+    els.summary.textContent = t("results.analyzing");
+  }
+}
+
+function setLanguage(lang) {
+  const next = I18N[lang] ? lang : DEFAULT_LANG;
+  if (next === currentLang) return;
+  currentLang = next;
+  try {
+    localStorage.setItem("strideiq-lang", currentLang);
+  } catch (err) {
+    // Ignore storage errors.
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    params.set("lang", currentLang);
+    const nextUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, "", nextUrl);
+  } catch (err) {
+    // Ignore URL update errors.
+  }
+  applyTranslations();
+}
+
+function initLanguage() {
+  const params = new URLSearchParams(window.location.search);
+  const urlLang = params.get("lang");
+  if (I18N[urlLang]) {
+    currentLang = urlLang;
+    try {
+      localStorage.setItem("strideiq-lang", currentLang);
+    } catch (err) {
+      // Ignore storage errors.
+    }
+    applyTranslations();
+    els.langButtons.forEach((btn) => {
+      btn.addEventListener("click", () => setLanguage(btn.dataset.lang));
+    });
+    return;
+  }
+
+  let stored = null;
+  try {
+    stored = localStorage.getItem("strideiq-lang");
+  } catch (err) {
+    stored = null;
+  }
+  currentLang = I18N[stored] ? stored : DEFAULT_LANG;
+  applyTranslations();
+  els.langButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setLanguage(btn.dataset.lang));
+  });
+}
 
 function log(msg) {
-  const t = new Date().toISOString().replace("T", " ").replace("Z", "");
-  els.log.textContent += `[${t}] ${msg}\n`;
+  const ts = new Date().toISOString().replace("T", " ").replace("Z", "");
+  els.log.textContent += `[${ts}] ${msg}\n`;
   els.log.scrollTop = els.log.scrollHeight;
 }
 
-function setStatus(msg) {
-  els.status.textContent = `Status: ${msg}`;
-  log(msg);
+function setStatus(key, vars = {}, options = {}) {
+  const msg = t(key, vars);
+  els.status.textContent = msg;
+  if (!options.silent) {
+    log(msg);
+  }
+  lastStatus = { key, vars };
 }
 
 function setProgress(pct) {
@@ -93,10 +210,10 @@ async function ensureCanvasReady() {
 
 async function loadModel() {
   if (poseLandmarker) {
-    setStatus("Model already loaded (skipped).");
+    setStatus("status.modelAlreadyLoaded");
     return;
   }
-  setStatus("Loading model (WASM + model file)...");
+  setStatus("status.modelLoading");
   setProgress(3);
 
   const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
@@ -111,9 +228,9 @@ async function loadModel() {
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-    setStatus("Model loaded (GPU delegate).");
+    setStatus("status.modelLoadedGpu");
   } catch (err) {
-    log(`GPU delegate init failed, falling back to CPU. Reason: ${err}`);
+    log(t("log.gpuFallback", { error: String(err) }));
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
       runningMode: "VIDEO",
@@ -122,7 +239,7 @@ async function loadModel() {
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-    setStatus("Model loaded (CPU delegate).");
+    setStatus("status.modelLoadedCpu");
   }
 
   setProgress(8);
@@ -142,12 +259,13 @@ function resetOutputs() {
   els.summary.classList.remove("muted");
   els.flags.classList.remove("muted");
   els.advice.classList.remove("muted");
-  els.summary.textContent = "Checking video requirements...";
+  els.summary.textContent = t("results.analyzing");
   els.flags.innerHTML = "";
   els.metricsTable.innerHTML = "";
   els.advice.innerHTML = "";
   els.btnDownload.disabled = true;
   lastAnalysis = null;
+  lastRender = { type: "analyzing" };
 }
 
 function clearOverlay() {
@@ -318,35 +436,35 @@ function classifyFootStrike(heel, toe) {
 }
 
 function interpretOverstride(ratio) {
-  if (!Number.isFinite(ratio)) return { label: "Unknown", level: "na" };
-  if (ratio >= 0.20) return { label: "Severe (high likelihood of overstride)", level: "bad" };
-  if (ratio >= 0.12) return { label: "Moderate (possible overstride)", level: "warn" };
-  if (ratio >= 0.06) return { label: "Mild (could improve)", level: "warn" };
-  return { label: "Good (landing near the hip)", level: "good" };
+  if (!Number.isFinite(ratio)) return { label: t("interpret.overstride.unknown"), level: "na" };
+  if (ratio >= 0.20) return { label: t("interpret.overstride.severe"), level: "bad" };
+  if (ratio >= 0.12) return { label: t("interpret.overstride.moderate"), level: "warn" };
+  if (ratio >= 0.06) return { label: t("interpret.overstride.mild"), level: "warn" };
+  return { label: t("interpret.overstride.good"), level: "good" };
 }
 
 function interpretKnee(angle) {
-  if (!Number.isFinite(angle)) return { label: "Unknown", level: "na" };
-  if (angle >= 170) return { label: "Very close to locked", level: "bad" };
-  if (angle >= 160) return { label: "Extended", level: "warn" };
-  return { label: "Flexed (better)", level: "good" };
+  if (!Number.isFinite(angle)) return { label: t("interpret.knee.unknown"), level: "na" };
+  if (angle >= 170) return { label: t("interpret.knee.locked"), level: "bad" };
+  if (angle >= 160) return { label: t("interpret.knee.extended"), level: "warn" };
+  return { label: t("interpret.knee.good"), level: "good" };
 }
 
 function interpretTrunkLean(deg) {
   // Positive: forward (aligned with running direction), negative: backward.
-  if (!Number.isFinite(deg)) return { label: "Unknown", level: "na" };
-  if (deg < -2) return { label: "Backward lean (may reduce propulsion)", level: "bad" };
-  if (deg < 0) return { label: "Slight backward lean", level: "warn" };
-  if (deg <= 12) return { label: "Reasonable forward lean", level: "good" };
-  return { label: "Large forward lean (pace dependent)", level: "warn" };
+  if (!Number.isFinite(deg)) return { label: t("interpret.trunk.unknown"), level: "na" };
+  if (deg < -2) return { label: t("interpret.trunk.backward"), level: "bad" };
+  if (deg < 0) return { label: t("interpret.trunk.slightBackward"), level: "warn" };
+  if (deg <= 12) return { label: t("interpret.trunk.reasonable"), level: "good" };
+  return { label: t("interpret.trunk.largeForward"), level: "warn" };
 }
 
 function interpretRetraction(speed) {
   // Positive: pulling back before contact. Negative: still reaching forward.
-  if (!Number.isFinite(speed)) return { label: "Unknown", level: "na" };
-  if (speed < -0.02) return { label: "Clear forward reach (low retraction)", level: "bad" };
-  if (speed < 0.02) return { label: "Slow pullback (could improve)", level: "warn" };
-  return { label: "Good pullback", level: "good" };
+  if (!Number.isFinite(speed)) return { label: t("interpret.retraction.unknown"), level: "na" };
+  if (speed < -0.02) return { label: t("interpret.retraction.forwardReach"), level: "bad" };
+  if (speed < 0.02) return { label: t("interpret.retraction.slowPull"), level: "warn" };
+  return { label: t("interpret.retraction.good"), level: "good" };
 }
 
 function formatNum(x, digits = 2) {
@@ -434,7 +552,7 @@ function buildFlags(summary) {
   if (!summary.contactCount) {
     return [{
       level: "warn",
-      text: "No valid contact events detected. Try a clearer side-view video with good lighting.",
+      text: t("flags.noContacts"),
     }];
   }
 
@@ -442,54 +560,54 @@ function buildFlags(summary) {
 
   if (Number.isFinite(summary.overstrideRatioMedian)) {
     if (summary.overstrideRatioMedian >= 0.12) {
-      flags.push({ level: "bad", text: "Overstride risk: landing ahead of the hip." });
+      flags.push({ level: "bad", text: t("flags.overstrideBad") });
     } else {
-      flags.push({ level: "good", text: "Landing is close to the hip (lower overstride risk)." });
+      flags.push({ level: "good", text: t("flags.overstrideGood") });
     }
   } else {
-    flags.push({ level: "warn", text: "Overstride: unable to estimate." });
+    flags.push({ level: "warn", text: t("flags.overstrideUnknown") });
   }
 
   if (Number.isFinite(summary.kneeAngleMedian)) {
     if (summary.kneeAngleMedian >= 165) {
-      flags.push({ level: "bad", text: "Knee near locked at contact." });
+      flags.push({ level: "bad", text: t("flags.kneeBad") });
     } else {
-      flags.push({ level: "good", text: "Knee has some flex at contact." });
+      flags.push({ level: "good", text: t("flags.kneeGood") });
     }
   } else {
-    flags.push({ level: "warn", text: "Knee angle: unable to estimate." });
+    flags.push({ level: "warn", text: t("flags.kneeUnknown") });
   }
 
   if (Number.isFinite(summary.trunkLeanMedian)) {
     if (summary.trunkLeanMedian < -1) {
-      flags.push({ level: "bad", text: "Backward torso lean (stacking behind)." });
+      flags.push({ level: "bad", text: t("flags.trunkBad") });
     } else {
-      flags.push({ level: "good", text: "Torso stack looks reasonable (no clear backward lean)." });
+      flags.push({ level: "good", text: t("flags.trunkGood") });
     }
   } else {
-    flags.push({ level: "warn", text: "Trunk lean: unable to estimate." });
+    flags.push({ level: "warn", text: t("flags.trunkUnknown") });
   }
 
   if (Number.isFinite(summary.heelStrikeRate)) {
     if (summary.heelStrikeRate >= 0.6) {
-      flags.push({ level: "warn", text: "Heel landing is common; interpret with overstride." });
+      flags.push({ level: "warn", text: t("flags.heelMostly") });
     } else if (summary.heelStrikeRate <= 0.2) {
-      flags.push({ level: "good", text: "More mid/forefoot landing (estimated)." });
+      flags.push({ level: "good", text: t("flags.heelMostlyNon") });
     } else {
-      flags.push({ level: "warn", text: "Mixed strike pattern (estimated)." });
+      flags.push({ level: "warn", text: t("flags.heelMixed") });
     }
   } else {
-    flags.push({ level: "warn", text: "Foot strike type: unable to estimate." });
+    flags.push({ level: "warn", text: t("flags.heelUnknown") });
   }
 
   if (Number.isFinite(summary.retractSpeedMedian)) {
     if (summary.retractSpeedMedian < 0.02) {
-      flags.push({ level: "warn", text: "Slow pullback before contact (may relate to overstride)." });
+      flags.push({ level: "warn", text: t("flags.retractionSlow") });
     } else {
-      flags.push({ level: "good", text: "Good pullback before contact." });
+      flags.push({ level: "good", text: t("flags.retractionGood") });
     }
   } else {
-    flags.push({ level: "warn", text: "Leg retraction: unable to estimate." });
+    flags.push({ level: "warn", text: t("flags.retractionUnknown") });
   }
 
   return flags;
@@ -498,7 +616,7 @@ function buildFlags(summary) {
 function buildAdvice(summary) {
   if (!summary.contactCount) {
     return [
-      "No valid contact events detected. Try a clearer side-view video with minimal occlusion and steady framing.",
+      t("advice.noContacts"),
     ];
   }
 
@@ -506,37 +624,37 @@ function buildAdvice(summary) {
 
   if (Number.isFinite(summary.overstrideRatioMedian)) {
     if (summary.overstrideRatioMedian >= 0.12) {
-      out.push("Priority: shorten stride and raise cadence 3-7%. Cue: place the foot down under the hip (avoid reaching).");
-      out.push("Training: metronome intervals - 1 min normal + 1 min +5% cadence, 6-10 sets, 2x/week for 3-4 weeks.");
+      out.push(t("advice.overstridePriority1"));
+      out.push(t("advice.overstridePriority2"));
     } else {
-      out.push("Stride/landing: landing is close to the hip; focus on strength and elastic rebound rather than forcing a strike change.");
+      out.push(t("advice.overstrideGood"));
     }
   } else {
-    out.push("Overstride: unable to estimate. Try a clearer side-view video with visible hips and feet.");
+    out.push(t("advice.overstrideUnknown"));
   }
 
   if (Number.isFinite(summary.kneeAngleMedian) && summary.kneeAngleMedian >= 165) {
-    out.push("Knee angle: avoid a near-locked knee at contact. Shorter stride usually improves this; do not force the knee alone.");
+    out.push(t("advice.knee"));
   }
 
   if (Number.isFinite(summary.trunkLeanMedian) && summary.trunkLeanMedian < -1) {
-    out.push("Torso: stack ear-shoulder-hip vertically and lean slightly from the ankles (not the waist).");
+    out.push(t("advice.trunk"));
   }
 
   if (Number.isFinite(summary.heelStrikeRate) && Number.isFinite(summary.overstrideRatioMedian)) {
     if (summary.heelStrikeRate >= 0.6 && summary.overstrideRatioMedian < 0.12) {
-      out.push("Foot strike: heel striking is common at many paces; if landing is near the hip, no need to force forefoot (avoid calf/Achilles overload).");
+      out.push(t("advice.heelOk"));
     } else if (summary.heelStrikeRate >= 0.6 && summary.overstrideRatioMedian >= 0.12) {
-      out.push("Foot strike: prioritize moving the landing back under the hip; strike pattern often shifts naturally.");
+      out.push(t("advice.heelOverstride"));
     }
   }
 
-  out.push("Strength/elasticity (often most important for running economy): 2x/week lower-body strength (split squat, hip extension, calf raises) + 1x light plyometrics (ankle hops/jump rope) for 8-12 weeks.");
+  out.push(t("advice.strength"));
 
   return out;
 }
 
-function renderIssues(title, issues, suggestions) {
+function renderIssuesContent(title, issues, suggestions) {
   els.summary.textContent = title;
 
   els.flags.innerHTML = "";
@@ -554,22 +672,57 @@ function renderIssues(title, issues, suggestions) {
     els.advice.appendChild(li);
   }
 
-  els.metricsTable.innerHTML = "<tr><td colspan=\"3\" class=\"muted\">Not available</td></tr>";
+  els.metricsTable.innerHTML = `<tr><td colspan="3" class="muted">${escapeHtml(t("results.notAvailable"))}</td></tr>`;
   els.btnDownload.disabled = true;
+}
+
+function renderIssue(key, vars = {}) {
+  const title = t(`issues.${key}.title`, vars);
+  const issues = getArray(`issues.${key}.issues`, vars);
+  const suggestions = getArray(`issues.${key}.suggestions`, vars);
+  renderIssuesContent(title, issues, suggestions);
+  lastRender = { type: "issue", key, vars };
 }
 
 function renderResults(analysis) {
   const s = analysis.summary;
+  analysis.meta.notes = getArray("meta.notes");
 
   const durationLabel = analysis.meta.slowMoFactor > 1
-    ? `video length ${formatNum(analysis.meta.durationSec, 1)} s (slow-mo x${analysis.meta.slowMoFactor} => real time ${formatNum(analysis.meta.realDurationSec, 1)} s)`
-    : `video length ${formatNum(analysis.meta.durationSec, 1)} s`;
+    ? t("results.durationSlowmo", {
+      duration: formatNum(analysis.meta.durationSec, 1),
+      factor: analysis.meta.slowMoFactor,
+      realDuration: formatNum(analysis.meta.realDurationSec, 1),
+    })
+    : t("results.durationNormal", {
+      duration: formatNum(analysis.meta.durationSec, 1),
+    });
+
+  const directionLabel = analysis.meta.direction > 0
+    ? t("results.directionRight")
+    : t("results.directionLeft");
+  const directionModeLabel = analysis.meta.directionMode === "auto"
+    ? t("results.directionModeAuto")
+    : analysis.meta.directionMode;
 
   els.summary.textContent =
-    `Analysis complete: sampled at ${analysis.meta.sampleFps} fps, ${durationLabel}.` +
-    `\nValid contact events: L ${analysis.contacts.left.length}, R ${analysis.contacts.right.length} (total ${analysis.contacts.all.length}).` +
-    `\nDirection: ${analysis.meta.direction > 0 ? "Facing/running right (>)" : "Facing/running left (<)"} (${analysis.meta.directionMode}).` +
-    "\n\nReminder: metrics are 2D estimates and can be affected by camera angle, distance, cropping, occlusion, clothing, treadmill vs outdoor, etc.";
+    t("results.summaryLine1", {
+      sampleFps: analysis.meta.sampleFps,
+      durationLabel,
+    }) +
+    "\n" +
+    t("results.summaryLine2", {
+      left: analysis.contacts.left.length,
+      right: analysis.contacts.right.length,
+      total: analysis.contacts.all.length,
+    }) +
+    "\n" +
+    t("results.summaryLine3", {
+      directionLabel,
+      directionMode: directionModeLabel,
+    }) +
+    "\n\n" +
+    t("results.summaryNote");
 
   // Flags
   const flags = buildFlags(s);
@@ -585,27 +738,29 @@ function renderResults(analysis) {
   // Metrics table
   const rows = [
     {
-      name: "Overstride ratio (landing ahead of hip, normalized)",
+      name: t("metrics.overstride"),
       val: formatNum(s.overstrideRatioMedian, 3),
       interp: interpretOverstride(s.overstrideRatioMedian).label,
     },
     {
-      name: "Knee angle @ contact (deg)",
+      name: t("metrics.knee"),
       val: formatNum(s.kneeAngleMedian, 1),
       interp: interpretKnee(s.kneeAngleMedian).label,
     },
     {
-      name: "Trunk lean (deg; +forward / -backward)",
+      name: t("metrics.trunk"),
       val: formatNum(s.trunkLeanMedian, 1),
       interp: interpretTrunkLean(s.trunkLeanMedian).label,
     },
     {
-      name: "Heel-strike rate",
+      name: t("metrics.heelStrike"),
       val: `${formatNum(s.heelStrikeRate * 100, 1)}%`,
-      interp: s.heelStrikeRate >= 0.6 ? "Mostly heel" : (s.heelStrikeRate <= 0.2 ? "Mostly non-heel" : "Mixed"),
+      interp: s.heelStrikeRate >= 0.6
+        ? t("metrics.mostlyHeel")
+        : (s.heelStrikeRate <= 0.2 ? t("metrics.mostlyNonHeel") : t("metrics.mixedStrike")),
     },
     {
-      name: "Retraction speed (pullback before contact; higher is better)",
+      name: t("metrics.retraction"),
       val: formatNum(s.retractSpeedMedian, 3),
       interp: interpretRetraction(s.retractSpeedMedian).label,
     },
@@ -628,6 +783,7 @@ function renderResults(analysis) {
   }
 
   els.btnDownload.disabled = false;
+  lastRender = { type: "analysis", analysis };
 }
 
 function escapeHtml(s) {
@@ -748,17 +904,17 @@ async function seekTo(video, tSec) {
 
 async function analyze() {
   if (!els.file.files?.[0]) {
-    alert("Please choose a video file first.");
+    alert(t("alerts.chooseVideo"));
     return;
   }
   if (!els.video.duration || !Number.isFinite(els.video.duration)) {
-    alert("Video is not fully loaded yet. Please try again in a moment.");
+    alert(t("alerts.videoNotLoaded"));
     return;
   }
 
   resetOutputs();
   setProgress(0);
-  setStatus("Checking video requirements...");
+  setStatus("status.checkingRequirements");
 
   const duration = els.video.duration;
   const vw = els.video.videoWidth || 0;
@@ -767,34 +923,22 @@ async function analyze() {
   const shortEdge = Math.min(vw, vh);
 
   if (longEdge < MIN_LONG_EDGE || shortEdge < MIN_SHORT_EDGE) {
-    renderIssues(
-      "Video resolution too low.",
-      [
-        `Minimum required: ${MIN_LONG_EDGE}x${MIN_SHORT_EDGE} (1080p).`,
-        `Detected: ${vw}x${vh}.`,
-      ],
-      [
-        "Record or export at 1080p or higher.",
-        "Avoid heavy cropping or digital zoom.",
-      ],
-    );
-    setStatus("Analysis stopped: resolution too low.");
+    renderIssue("resolutionLow", {
+      minLong: MIN_LONG_EDGE,
+      minShort: MIN_SHORT_EDGE,
+      width: vw,
+      height: vh,
+    });
+    setStatus("status.stoppedResolutionLow");
     setProgress(0);
     return;
   }
 
-  setStatus("Checking video frame rate...");
+  setStatus("status.checkingFps");
   const inputFps = await estimateVideoFps(els.video);
   if (!Number.isFinite(inputFps)) {
-    renderIssues(
-      "Unable to verify frame rate.",
-      ["The browser could not read the video FPS."],
-      [
-        `Use ${NORMAL_FPS} fps (normal) or ${SLOWMO_FPS} fps (slow-motion).`,
-        "Try Chrome or Edge if this keeps happening.",
-      ],
-    );
-    setStatus("Analysis stopped: FPS unknown.");
+    renderIssue("fpsUnknown");
+    setStatus("status.stoppedFpsUnknown");
     setProgress(0);
     return;
   }
@@ -802,18 +946,10 @@ async function analyze() {
   const isNormalFps = Math.abs(inputFps - NORMAL_FPS) <= NORMAL_FPS_TOLERANCE;
   const isSlowMoFps = Math.abs(inputFps - SLOWMO_FPS) <= SLOWMO_FPS_TOLERANCE;
   if (!isNormalFps && !isSlowMoFps) {
-    renderIssues(
-      "Unsupported frame rate.",
-      [
-        `Supported: ${NORMAL_FPS} fps (normal) or ${SLOWMO_FPS} fps (slow-motion).`,
-        `Detected: ${formatNum(inputFps, 1)} fps.`,
-      ],
-      [
-        `Export at ${NORMAL_FPS} fps or ${SLOWMO_FPS} fps.`,
-        "Avoid 60/120 fps exports or time-lapse.",
-      ],
-    );
-    setStatus("Analysis stopped: unsupported FPS.");
+    renderIssue("fpsUnsupported", {
+      fps: formatNum(inputFps, 1),
+    });
+    setStatus("status.stoppedFpsUnsupported");
     setProgress(0);
     return;
   }
@@ -821,18 +957,12 @@ async function analyze() {
   const slowMoFactor = isSlowMoFps ? SLOWMO_FACTOR : 1;
   const realDuration = duration / slowMoFactor;
   if (realDuration < MIN_DURATION_SEC) {
-    renderIssues(
-      "Video too short to analyze.",
-      [
-        `Minimum real-time duration is ${MIN_DURATION_SEC.toFixed(1)} seconds.`,
-        `Detected: ${formatNum(realDuration, 2)} seconds (video length ${formatNum(duration, 2)}s).`,
-      ],
-      [
-        "Record 3-8 seconds of steady, side-view running.",
-        "Ensure at least 4-6 full strides are visible.",
-      ],
-    );
-    setStatus("Analysis stopped: video too short.");
+    renderIssue("videoTooShort", {
+      min: MIN_DURATION_SEC.toFixed(1),
+      detected: formatNum(realDuration, 2),
+      video: formatNum(duration, 2),
+    });
+    setStatus("status.stoppedVideoTooShort");
     setProgress(0);
     return;
   }
@@ -846,7 +976,11 @@ async function analyze() {
   const dt = 1 / Math.max(5, Math.min(60, sampleFps));
   const steps = Math.max(1, Math.ceil(duration / dt));
 
-  setStatus(`Analysis started: duration=${duration.toFixed(2)}s, sampleFps=${sampleFps}, steps~${steps}`);
+  setStatus("status.analysisStarted", {
+    duration: duration.toFixed(2),
+    sampleFps,
+    steps,
+  });
   await ensureCanvasReady();
 
   // Frame records
@@ -860,17 +994,17 @@ async function analyze() {
   // Sample frames using seek + detectForVideo.
   // Long videos may take time; consider trimming for faster analysis.
   for (let k = 0; k <= steps; k++) {
-    const t = Math.min(duration, k * dt);
+    const timeSec = Math.min(duration, k * dt);
 
     // Seek
-    await seekTo(els.video, t);
+    await seekTo(els.video, timeSec);
 
     // Detect
     let result = null;
     try {
-      result = poseLandmarker.detectForVideo(els.video, t * 1000);
+      result = poseLandmarker.detectForVideo(els.video, timeSec * 1000);
     } catch (err) {
-      log(`detectForVideo error @${t.toFixed(2)}s: ${err}`);
+      log(t("log.detectError", { time: timeSec.toFixed(2), error: String(err) }));
       result = null;
     }
 
@@ -888,7 +1022,7 @@ async function analyze() {
     }
 
     frames.push({
-      t,
+      t: timeSec,
       landmarks,
       sampleFps,
     });
@@ -906,51 +1040,27 @@ async function analyze() {
   }
 
   setProgress(82);
-  setStatus("Computing gait events and summary...");
+  setStatus("status.computingSummary");
 
   const detectionRatio = frames.length ? detectedFrames / frames.length : 0;
   if (detectedFrames === 0) {
-    renderIssues(
-      "No runner detected.",
-      ["No person could be detected in the video."],
-      [
-        "Use a clear side-view shot with the full body visible.",
-        "Increase lighting and avoid motion blur.",
-      ],
-    );
-    setStatus("Analysis stopped: no person detected.");
+    renderIssue("noRunner");
+    setStatus("status.stoppedNoRunner");
     setProgress(100);
     return;
   }
 
   if (detectedFrames < MIN_DETECTED_FRAMES || detectionRatio < MIN_DETECTION_RATIO) {
-    renderIssues(
-      "Low detection quality.",
-      [
-        "Too few frames contained reliable pose landmarks.",
-        "Video may be blurry, too dark, or the runner is too small in frame.",
-      ],
-      [
-        "Use a brighter, sharper video and keep the runner larger in frame.",
-        "Avoid heavy occlusion and fast camera motion.",
-      ],
-    );
-    setStatus("Analysis stopped: low detection quality.");
+    renderIssue("lowDetection");
+    setStatus("status.stoppedLowDetection");
     setProgress(100);
     return;
   }
 
   const directionSamples = directionLeft + directionRight;
   if (directionSamples < MIN_DIRECTION_SAMPLES) {
-    renderIssues(
-      "Direction unclear.",
-      ["The runner's facing direction could not be determined reliably."],
-      [
-        "Keep the runner fully visible in a clear side view.",
-        "Avoid heavy occlusion or extreme camera angles.",
-      ],
-    );
-    setStatus("Analysis stopped: direction unclear.");
+    renderIssue("directionUnclear");
+    setStatus("status.stoppedDirectionUnclear");
     setProgress(100);
     return;
   }
@@ -958,15 +1068,8 @@ async function analyze() {
   if (directionLeft > 0 && directionRight > 0) {
     const flipRatio = Math.min(directionLeft, directionRight) / directionSamples;
     if (flipRatio > MAX_DIRECTION_FLIP_RATIO) {
-      renderIssues(
-        "Inconsistent running direction.",
-        ["The runner appears to change direction within the clip."],
-        [
-          "Use a single-direction clip (left-to-right or right-to-left).",
-          "Avoid out-and-back segments or camera flips.",
-        ],
-      );
-      setStatus("Analysis stopped: inconsistent direction.");
+      renderIssue("directionInconsistent");
+      setStatus("status.stoppedDirectionInconsistent");
       setProgress(100);
       return;
     }
@@ -989,18 +1092,11 @@ async function analyze() {
   const rightMetrics = computeContactMetrics(frames, rightPeaks, "R", direction, slowMoFactor);
   const allMetrics = [...leftMetrics, ...rightMetrics].sort((a, b) => a.t - b.t);
   if (allMetrics.length < MIN_CONTACTS) {
-    renderIssues(
-      "Too few strides detected.",
-      [
-        "Not enough clear contact events were found.",
-        `Detected: L ${leftMetrics.length}, R ${rightMetrics.length}.`,
-      ],
-      [
-        "Use a longer clip with several strides (3-5 seconds).",
-        "Keep the runner fully visible from head to feet.",
-      ],
-    );
-    setStatus("Analysis stopped: too few strides.");
+    renderIssue("fewStrides", {
+      left: leftMetrics.length,
+      right: rightMetrics.length,
+    });
+    setStatus("status.stoppedFewStrides");
     setProgress(100);
     return;
   }
@@ -1033,12 +1129,7 @@ async function analyze() {
         modelUrl: MODEL_URL,
         wasmRoot: WASM_ROOT,
       },
-      notes: [
-        "All metrics are 2D approximations in normalized image coordinates.",
-        "Contact events are detected by local maxima of heel y (lowest point) and can be noisy.",
-        "Time-based metrics are normalized using the slow-motion factor when applicable.",
-        "Do not use as medical diagnosis. Use as training feedback only.",
-      ],
+      notes: getArray("meta.notes"),
     },
     contacts: {
       left: leftMetrics,
@@ -1059,7 +1150,7 @@ async function analyze() {
   renderResults(analysis);
 
   setProgress(100);
-  setStatus("Done.");
+  setStatus("status.analysisDone");
 }
 
 els.file.addEventListener("change", () => {
@@ -1070,11 +1161,18 @@ els.file.addEventListener("change", () => {
   els.video.src = url;
   els.video.load();
 
-  setStatus(`Selected video: ${file.name} (${Math.round(file.size / 1024 / 1024)} MB)`);
+  setStatus("status.videoSelected", {
+    name: file.name,
+    size: Math.round(file.size / 1024 / 1024),
+  });
   setProgress(0);
 
   els.video.onloadedmetadata = async () => {
-    setStatus(`Video loaded: ${els.video.videoWidth}x${els.video.videoHeight}, duration=${els.video.duration.toFixed(2)}s`);
+    setStatus("status.videoLoaded", {
+      width: els.video.videoWidth,
+      height: els.video.videoHeight,
+      duration: els.video.duration.toFixed(2),
+    });
     await ensureCanvasReady();
     maybeEnableAnalyze();
   };
@@ -1086,8 +1184,8 @@ els.btnAnalyze.addEventListener("click", async () => {
     await analyze();
   } catch (e) {
     console.error(e);
-    setStatus(`Analysis failed: ${e}`);
-    alert("Analysis failed. Try a shorter video, lower sampling FPS, or Chrome/Edge.");
+    setStatus("status.analysisFailed", { error: String(e) });
+    alert(t("alerts.analysisFailed"));
   } finally {
     els.btnAnalyze.disabled = false;
   }
@@ -1099,6 +1197,7 @@ els.btnDownload.addEventListener("click", () => {
 });
 
 // Initial UI state
-setStatus("Waiting for input: choose video -> Start Analysis");
+initLanguage();
+setStatus("status.waitingVideo");
 setProgress(0);
 maybeEnableAnalyze();

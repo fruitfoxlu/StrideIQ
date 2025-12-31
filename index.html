@@ -1,19 +1,27 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <meta name="google-site-verification" content="8prbC3gpf2LGBnabbTnPrq9E3Uxv0PoNHoTio7x-uQo" />  
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Running Form Analysis Web App (MVP)</title>
-  <link rel="stylesheet" href="./style.css?v=1" />
+  <meta name="google-site-verification" content="8prbC3gpf2LGBnabbTnPrq9E3Uxv0PoNHoTio7x-uQo" />
+  <title data-i18n="ui.title">Running Form Analysis Web App (MVP)</title>
+  <link rel="stylesheet" href="./style.css?v=2" />
 </head>
 <body>
   <header class="container">
-    <h1>Running Form Analysis Web App (MVP)</h1>
+    <h1 data-i18n="ui.title">Running Form Analysis Web App (MVP)</h1>
+    <div class="lang-toggle" role="group" aria-label="Language" data-i18n="lang.ariaLabel" data-i18n-attr="aria-label">
+      <span class="lang-label" data-i18n="lang.label">Language</span>
+      <button class="lang-btn" type="button" data-lang="en" data-i18n="lang.english">English</button>
+      <button class="lang-btn" type="button" data-lang="zh-Hant" data-i18n="lang.chinese">中文</button>
+    </div>
     <p class="sub">
-      Browser-only (no upload): uses MediaPipe PoseLandmarker in the browser and simple rules to estimate
-      <span class="mono">overstride / knee extension / trunk lean / foot strike / leg retraction</span>.
+      <span data-i18n="ui.subtitlePrefix">Browser-only (no upload): uses MediaPipe PoseLandmarker in the browser and simple rules to estimate</span>
+      <span class="mono" data-i18n="ui.subtitleMetrics">overstride / knee extension / trunk lean / foot strike / leg retraction</span>
+      <span data-i18n="ui.subtitleSuffix">.</span>
     </p>
-    <p class="warn">
+    <p class="warn" data-i18n="ui.notice">
       Note: This is a deployable baseline demo. Running form and running economy are complex; this tool provides
       approximate estimates and trend signals only.
     </p>
@@ -21,110 +29,115 @@
 
   <main class="container grid">
     <section class="card">
-      <h2>1) Requirements & Example</h2>
+      <h2 data-i18n="sections.requirements">1) Requirements & Example</h2>
       <div class="requirements">
-        <div class="requirements-title">Requirements (enforced)</div>
+        <div class="requirements-title" data-i18n="requirements.title">Requirements (minimum for analysis)</div>
         <ul>
-          <li>Side view, single runner, and consistent direction (left-to-right or right-to-left).</li>
-          <li>iPhone default Video (1080p @ 30 fps) or iPhone Slo-mo (1080p @ 240 fps).</li>
-          <li>At least 3 seconds of running (4-6 strides).</li>
+          <li data-i18n="requirements.item1">Side view, single runner, and consistent direction (left-to-right or right-to-left).</li>
+          <li data-i18n="requirements.item2">1080p or higher at 30 fps (video your browser can decode), or 240 fps slow-mo (iPhone Slo-mo).</li>
+          <li data-i18n="requirements.item3">At least 3 seconds of real-time running (4-6 strides).</li>
         </ul>
       </div>
       <div class="requirements-example">
-        <div class="requirements-title">Example: Good capture framing</div>
+        <div class="requirements-title" data-i18n="requirements.exampleTitle">Example: Good capture framing</div>
         <div class="video-embed">
           <iframe
             src="https://www.youtube-nocookie.com/embed/rOn74w8UJUE"
+            data-i18n="requirements.exampleIframeTitle"
+            data-i18n-attr="title"
             title="Running capture example"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowfullscreen
           ></iframe>
         </div>
-        <div class="requirements-note">Example only (not analyzable). Follow this framing for your own video.</div>
+        <div class="requirements-note" data-i18n="requirements.exampleNote">Example only (not analyzable). Follow this framing for your own video.</div>
       </div>
     </section>
 
     <section class="card">
-      <h2>2) Input Video</h2>
+      <h2 data-i18n="sections.input">2) Input Video</h2>
 
       <label class="field">
-        <span>Choose a side-view running video (mp4/webm):</span>
+        <span data-i18n="input.label">Choose a side-view running video (mp4/webm):</span>
         <input id="videoFile" type="file" accept="video/*" />
       </label>
 
       <div class="row">
-        <button id="btnAnalyze" class="primary" disabled>Start Analysis</button>
-        <button id="btnDownload" class="secondary" disabled>Download JSON</button>
+        <button id="btnAnalyze" class="primary" disabled data-i18n="input.start">Start Analysis</button>
+        <button id="btnDownload" class="secondary" disabled data-i18n="input.download">Download JSON</button>
       </div>
 
       <div class="progress">
         <div id="progressBar" class="progress-bar" style="width: 0%"></div>
       </div>
-      <div id="status" class="status">Status: waiting for video</div>
+      <div id="status" class="status" data-i18n="status.waitingVideo">Status: waiting for video</div>
 
       <details class="debug">
-        <summary>View analysis log (debug)</summary>
+        <summary data-i18n="input.debug">View analysis log (debug)</summary>
         <pre id="log"></pre>
       </details>
     </section>
 
     <section class="card">
-      <h2>3) Video & Skeleton Overlay</h2>
+      <h2 data-i18n="sections.overlay">3) Video & Skeleton Overlay</h2>
       <div class="video-wrap">
         <video id="video" controls playsinline></video>
         <canvas id="overlay"></canvas>
       </div>
-      <p class="hint">
+      <p class="hint" data-i18n="overlay.hint">
         Suggested capture: phone fixed, camera height near hip, side view, good lighting, subject fills ~60-90% of
         frame height.
       </p>
     </section>
 
     <section class="card">
-      <h2>4) Results</h2>
+      <h2 data-i18n="sections.results">4) Results</h2>
 
-      <div id="summary" class="summary muted">
-        Not analyzed yet. Choose a video, then click "Start Analysis".
+      <div id="summary" class="summary muted" data-i18n="results.summaryDefault">
+        Not analyzed yet. Choose a video, then click Start Analysis.
       </div>
 
-      <h3>Form Flags (estimated by this tool)</h3>
+      <h3 data-i18n="results.flagsTitle">Form Flags (estimated by this tool)</h3>
       <ul id="flags" class="flags muted">
-        <li>Not analyzed yet</li>
+        <li data-i18n="results.notAnalyzed">Not analyzed yet</li>
       </ul>
 
-      <h3>Key Metrics (based on detected contact frames)</h3>
+      <h3 data-i18n="results.metricsTitle">Key Metrics (based on detected contact frames)</h3>
       <div class="table-wrap">
         <table id="metricsTable" class="metrics">
           <thead>
             <tr>
-              <th>Metric</th>
-              <th>Estimate (median)</th>
-              <th>Interpretation</th>
+              <th data-i18n="results.metricHeader">Metric</th>
+              <th data-i18n="results.estimateHeader">Estimate (median)</th>
+              <th data-i18n="results.interpretationHeader">Interpretation</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="3" class="muted">Not analyzed yet</td></tr>
+            <tr><td colspan="3" class="muted" data-i18n="results.notAnalyzed">Not analyzed yet</td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3>Recommendations (running economy)</h3>
+      <h3 data-i18n="results.adviceTitle">Recommendations (running economy)</h3>
       <ol id="advice" class="advice muted">
-        <li>Not analyzed yet</li>
+        <li data-i18n="results.notAnalyzed">Not analyzed yet</li>
       </ol>
     </section>
   </main>
 
   <footer class="container footer">
-    <p class="muted">
+    <p class="muted" data-i18n="footer.tech">
       Tech: MediaPipe PoseLandmarker (Web).
       This project is a deployable MVP reference for validating product flow and early quantification.
     </p>
+    <p class="muted" data-i18n="footer.author">Author: Royce Lu.</p>
     <p class="muted">
-      Feedback: <a href="mailto:fruitfoxlu@gmail.com">fruitfoxlu@gmail.com</a> — I’d love to hear your ideas, feature requests, or video format needs.
+      <span data-i18n="footer.feedbackPrefix">Feedback:</span>
+      <a href="mailto:fruitfoxlu@gmail.com">fruitfoxlu@gmail.com</a>
+      <span data-i18n="footer.feedbackSuffix">— I’d love to hear your ideas, feature requests, or video format needs.</span>
     </p>
   </footer>
 
-  <script type="module" src="./app.js?v=1"></script>
+  <script type="module" src="./app.js?v=3"></script>
 </body>
 </html>

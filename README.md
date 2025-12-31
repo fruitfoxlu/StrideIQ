@@ -18,12 +18,15 @@ Note: This is a demo MVP. Production quality usually needs:
 1) Record a side-view clip that meets the requirements below.
 2) Serve the folder over HTTP (see Local Development).
 3) Open the app, choose the video, click Start Analysis, and optionally download the JSON.
+4) Use the language toggle in the header to switch English/中文.
+5) Share language-specific links with `?lang=en` or `?lang=zh-Hant`.
 
 ## Project Structure
 
 - `index.html`: UI
 - `style.css`: styling
 - `app.js`: MediaPipe model loading, frame sampling, metrics, and UI updates
+- `i18n.js`: language strings for English/Traditional Chinese
 - `Dockerfile`: container for static hosting
 
 ## Video Requirements (enforced)
