@@ -325,8 +325,8 @@ async function loadModel() {
 
 function maybeEnableAnalyze() {
   const hasFile = !!els.file.files?.[0];
-  const hasVideo = els.video.src && els.video.readyState >= 1;
-  els.btnAnalyze.disabled = !(hasFile && hasVideo);
+  // Enable as soon as a file is chosen; analyze() will still guard if metadata isn't ready.
+  els.btnAnalyze.disabled = !hasFile;
 }
 
 function resetOutputs() {
@@ -1293,6 +1293,7 @@ els.file.addEventListener("change", () => {
     size: Math.round(file.size / 1024 / 1024),
   });
   setProgress(0);
+  maybeEnableAnalyze();
 
   els.video.onloadedmetadata = async () => {
     setStatus("status.videoLoaded", {
@@ -1302,6 +1303,9 @@ els.file.addEventListener("change", () => {
     });
     await ensureCanvasReady();
     maybeEnableAnalyze();
+  };
+  els.video.onerror = () => {
+    els.btnAnalyze.disabled = true;
   };
 });
 
