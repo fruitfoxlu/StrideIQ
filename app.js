@@ -315,8 +315,10 @@ function updateModelHint() {
   if (!els.modelHint) return;
   const resolved = resolveModelType(modelTypeSelection);
   const backend = modelBackend || "-";
-  els.modelHint.textContent = t("input.modelHint", {
-    modelType: getModelTypeLabel(resolved),
+  const modelLabel = getModelTypeLabel(resolved);
+  const key = resolved === MODEL_TYPE_FULL ? "input.modelHintFull" : "input.modelHintLite";
+  els.modelHint.textContent = t(key, {
+    modelType: modelLabel,
     backend,
   });
 }
