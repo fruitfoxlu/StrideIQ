@@ -10,7 +10,7 @@ export const I18N = {
     },
     ui: {
       title: "Running Form Analysis Web App (MVP)",
-      subtitlePrefix: "Browser-only (no upload): uses TensorFlow.js BlazePose in the browser and simple rules to estimate",
+      subtitlePrefix: "Browser-only (no upload): analyzes locally with simple rules to estimate",
       subtitleMetrics: "overstride / knee extension / trunk lean / foot strike / leg retraction",
       subtitleSuffix: ".",
       mobileNotice: "Heads up: phone analysis can be slow and battery-heavy. For a faster experience, use a laptop/desktop or an iPad Pro/mini. Everything runs locally for privacy and zero server/storage cost.",
@@ -72,7 +72,7 @@ export const I18N = {
       directionModeAuto: "auto",
     },
     footer: {
-      tech: "Tech: TensorFlow.js BlazePose (Web). This project is a deployable MVP reference for validating product flow and early quantification.",
+      tech: "All processing runs locally in your browser. This project is a deployable MVP reference for validating product flow and early quantification.",
       author: "Author: Royce Lu.",
       pacePrefix: "Pace calculator:",
       feedbackPrefix: "Feedback:",
@@ -301,7 +301,7 @@ export const I18N = {
     },
     ui: {
       title: "跑姿分析 Web App（MVP）",
-      subtitlePrefix: "純前端（不需上傳）：使用 TensorFlow.js BlazePose 在瀏覽器端，以簡化規則估算",
+      subtitlePrefix: "純前端（不需上傳）：在瀏覽器端以簡化規則估算",
       subtitleMetrics: "overstride / 膝伸直 / 軀幹傾角 / 著地型態 / 腳回收",
       subtitleSuffix: "。",
       mobileNotice: "提醒：手機端分析較慢且耗電，建議改用筆電/桌機或 iPad Pro/mini 開啟。所有運算在本機完成，隱私保護且不需雲端存儲或額外費用。",
@@ -363,7 +363,7 @@ export const I18N = {
       directionModeAuto: "自動",
     },
     footer: {
-      tech: "技術：TensorFlow.js BlazePose（Web）。本專案為可部署 MVP 參考，用於驗證流程與早期量化。",
+      tech: "所有運算都在瀏覽器本機完成。本專案為可部署 MVP 參考，用於驗證流程與早期量化。",
       author: "作者：Royce Lu。",
       pacePrefix: "配速計算器：",
       feedbackPrefix: "意見回饋：",
