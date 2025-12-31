@@ -84,6 +84,7 @@ let modelBackend = null;
 let inferenceCanvas = null;
 let inferenceCtx = null;
 let fetchPatched = false;
+let modelHintVisible = true;
 
 function getValueByPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), obj);
@@ -303,9 +304,12 @@ function initModelType() {
     stored = null;
   }
   setModelTypeSelection(stored || MODEL_TYPE_LITE);
+  modelHintVisible = true;
   if (els.modelType) {
     els.modelType.addEventListener("change", (event) => {
       setModelTypeSelection(event.target.value);
+      modelHintVisible = true;
+      updateModelHint();
     });
   }
   updateModelHint();
@@ -313,6 +317,12 @@ function initModelType() {
 
 function updateModelHint() {
   if (!els.modelHint) return;
+  if (!modelHintVisible) {
+    els.modelHint.textContent = "";
+    els.modelHint.setAttribute("aria-hidden", "true");
+    return;
+  }
+  els.modelHint.removeAttribute("aria-hidden");
   const resolved = resolveModelType(modelTypeSelection);
   const backend = modelBackend || "-";
   const modelLabel = getModelTypeLabel(resolved);
