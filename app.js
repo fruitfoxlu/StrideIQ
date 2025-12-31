@@ -16,6 +16,7 @@ const MODEL_TYPE_LITE = "lite";
 const MODEL_TYPE_FULL = "full";
 const MOBILE_MODEL_TYPE = MODEL_TYPE_LITE;
 const DESKTOP_MODEL_TYPE = MODEL_TYPE_LITE; // default all to lite for speed
+const MOBILE_FPS_FALLBACK = 30;
 const MIN_POSE_SCORE = 0.2;
 const MIN_DURATION_SEC = 3;
 const MIN_DETECTION_RATIO = 0.2;
@@ -1032,7 +1033,13 @@ async function estimateVideoFps(video) {
   const supportsRvfc = typeof video.requestVideoFrameCallback === "function";
   const supportsQuality = typeof video.getVideoPlaybackQuality === "function";
   log(`Debug: FPS probe start (rvfc=${supportsRvfc}, quality=${supportsQuality}, readyState=${video.readyState}, paused=${video.paused})`);
-  if (!supportsRvfc && !supportsQuality) return NaN;
+  if (!supportsRvfc && !supportsQuality) {
+    if (isMobileDevice()) {
+      log(`Debug: FPS probe unsupported on this browser; using mobile fallback ${MOBILE_FPS_FALLBACK}fps`);
+      return MOBILE_FPS_FALLBACK;
+    }
+    return NaN;
+  }
 
   const sampleMs = 600;
   const minFrames = 8;
@@ -1184,7 +1191,11 @@ async function analyze() {
 
   setStatus("status.checkingFps");
   const fpsStart = performance.now();
-  const inputFps = await estimateVideoFps(els.video);
+  let inputFps = await estimateVideoFps(els.video);
+  if (!Number.isFinite(inputFps) && isMobileDevice()) {
+    inputFps = MOBILE_FPS_FALLBACK;
+    log(`Debug: Using mobile FPS fallback ${inputFps}fps after probe failed`);
+  }
   log(`Debug: estimateVideoFps total time=${Math.round(performance.now() - fpsStart)}ms, result=${formatNum(inputFps, 2)}`);
   if (!Number.isFinite(inputFps)) {
     renderIssue("fpsUnknown");
