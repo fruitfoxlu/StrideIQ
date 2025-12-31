@@ -1031,6 +1031,7 @@ function escapeHtml(s) {
 async function estimateVideoFps(video) {
   const supportsRvfc = typeof video.requestVideoFrameCallback === "function";
   const supportsQuality = typeof video.getVideoPlaybackQuality === "function";
+  log(`Debug: FPS probe start (rvfc=${supportsRvfc}, quality=${supportsQuality}, readyState=${video.readyState}, paused=${video.paused})`);
   if (!supportsRvfc && !supportsQuality) return NaN;
 
   const sampleMs = 600;
@@ -1048,6 +1049,7 @@ async function estimateVideoFps(video) {
   const startWall = performance.now();
   let rafId = null;
   const qualityStart = supportsQuality ? video.getVideoPlaybackQuality().totalVideoFrames : 0;
+  let qualityEnd = qualityStart;
 
   const onFrame = (now) => {
     if (!start) start = now;
@@ -1061,11 +1063,14 @@ async function estimateVideoFps(video) {
     rafId = video.requestVideoFrameCallback(onFrame);
   }
 
+  const playStart = performance.now();
   try {
     await video.play();
   } catch (err) {
+    log(`Debug: video.play() failed during FPS probe: ${String(err)}`);
     // Autoplay can still fail; fall through and return NaN.
   }
+  log(`Debug: video.play() resolved in ${Math.round(performance.now() - playStart)}ms (paused=${video.paused}, readyState=${video.readyState})`);
 
   await sleep(sampleMs + 150);
 
@@ -1077,17 +1082,24 @@ async function estimateVideoFps(video) {
 
   const elapsedMs = start ? performance.now() - start : (performance.now() - startWall);
   let fps = NaN;
+  let method = "none";
   if (elapsedMs > 0) {
     if (supportsRvfc && frameCount >= minFrames) {
       fps = frameCount / (elapsedMs / 1000);
+      method = "rvfc";
     } else if (supportsQuality) {
-      const qualityEnd = video.getVideoPlaybackQuality().totalVideoFrames;
+      qualityEnd = video.getVideoPlaybackQuality().totalVideoFrames;
       const diff = qualityEnd - qualityStart;
       if (diff >= minFrames) {
         fps = diff / (elapsedMs / 1000);
+        method = "playbackQuality";
       }
     }
   }
+
+  log(
+    `Debug: FPS probe done method=${method}, frames=${frameCount}, qualityDelta=${qualityEnd - qualityStart}, elapsed=${Math.round(elapsedMs)}ms, fps=${formatNum(fps, 2)}`
+  );
 
   video.currentTime = originalTime;
   video.muted = wasMuted;
@@ -1171,7 +1183,9 @@ async function analyze() {
   await seekTo(els.video, 0);
 
   setStatus("status.checkingFps");
+  const fpsStart = performance.now();
   const inputFps = await estimateVideoFps(els.video);
+  log(`Debug: estimateVideoFps total time=${Math.round(performance.now() - fpsStart)}ms, result=${formatNum(inputFps, 2)}`);
   if (!Number.isFinite(inputFps)) {
     renderIssue("fpsUnknown");
     setStatus("status.stoppedFpsUnknown");
