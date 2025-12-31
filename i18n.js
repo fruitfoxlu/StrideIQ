@@ -63,6 +63,7 @@ export const I18N = {
     footer: {
       tech: "Tech: MediaPipe PoseLandmarker (Web). This project is a deployable MVP reference for validating product flow and early quantification.",
       author: "Author: Royce Lu.",
+      pacePrefix: "Pace calculator:",
       feedbackPrefix: "Feedback:",
       feedbackSuffix: "— I’d love to hear your ideas, feature requests, or video format needs.",
     },
@@ -338,6 +339,7 @@ export const I18N = {
     footer: {
       tech: "技術：MediaPipe PoseLandmarker（Web）。本專案為可部署 MVP 參考，用於驗證流程與早期量化。",
       author: "作者：Royce Lu。",
+      pacePrefix: "配速計算器：",
       feedbackPrefix: "意見回饋：",
       feedbackSuffix: "— 歡迎分享想法、功能建議或影片格式需求。",
     },
