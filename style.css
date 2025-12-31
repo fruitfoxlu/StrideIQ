@@ -97,6 +97,21 @@ header h1 {
 
 .small { font-size: 12px; }
 
+.model-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 10px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #13233a;
+  border: 1px solid #234471;
+  color: #e5edff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 
 button {
