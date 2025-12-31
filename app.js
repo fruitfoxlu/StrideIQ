@@ -36,13 +36,14 @@ const FPS_MIN_FRAMES_MOBILE = 3;
 const FPS_MIN_FRAMES_DESKTOP = 8;
 const MIN_DIRECTION_SAMPLES = 8;
 const MAX_DIRECTION_FLIP_RATIO = 0.25;
-const MAX_SAMPLES_MOBILE = 100;
+const MAX_SAMPLES_MOBILE = 60;
 const MAX_SAMPLES_DESKTOP = 240;
 const INFER_LONG_EDGE_MOBILE = 320;
 const INFER_LONG_EDGE_DESKTOP = 640;
 const MODEL_URL_PATTERN = /blazepose/i;
 const MOBILE_OVERLAY_EVERY = 6;
 const MOBILE_YIELD_EVERY = 1;
+const SAMPLE_FPS_MOBILE = 18;
 const POSE_CONNECTIONS = (() => {
   try {
     return poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
@@ -1276,8 +1277,9 @@ async function analyze() {
   }
 
   const sampleFps = DEFAULT_SAMPLE_FPS;
+  const mobileSampleFps = mobile ? SAMPLE_FPS_MOBILE : sampleFps;
   const minStepSec = DEFAULT_MIN_STEP_SEC * slowMoFactor;
-  const dtNominal = 1 / Math.max(5, Math.min(60, sampleFps));
+  const dtNominal = 1 / Math.max(5, Math.min(60, mobileSampleFps));
   const maxSamples = isMobileDevice() ? MAX_SAMPLES_MOBILE : MAX_SAMPLES_DESKTOP;
   let steps = Math.max(1, Math.ceil(duration / dtNominal));
   if (steps > maxSamples) {
@@ -1287,7 +1289,7 @@ async function analyze() {
 
   setStatus("status.analysisStarted", {
     duration: duration.toFixed(2),
-    sampleFps,
+    sampleFps: mobileSampleFps,
     steps,
   });
   await ensureCanvasReady();
@@ -1295,7 +1297,7 @@ async function analyze() {
   if (infer) {
     log(t("log.analysisConfig", {
       steps,
-      sampleFps,
+      sampleFps: mobileSampleFps,
       width: infer.width,
       height: infer.height,
       modelType: getModelTypeLabel(modelTypeResolved || resolveModelType(modelTypeSelection)),
@@ -1359,10 +1361,12 @@ async function analyze() {
       sampleFps,
     });
 
-    if (landmarks && (k % overlayEvery === 0)) {
-      drawOverlay(landmarks, direction);
-    } else if (k % overlayEvery === 0) {
-      clearOverlay();
+    if (!mobile) {
+      if (landmarks && (k % overlayEvery === 0)) {
+        drawOverlay(landmarks, direction);
+      } else if (k % overlayEvery === 0) {
+        clearOverlay();
+      }
     }
 
     if (k % yieldEvery === 0) {
