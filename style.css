@@ -95,6 +95,36 @@ header h1 {
   color: var(--text);
 }
 
+.sample-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #1f4f86;
+  background: linear-gradient(135deg, #123a6a, #0e1420 65%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.sample-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+.sample-cta .sample-note {
+  color: #ffd166;
+  font-size: 12px;
+  line-height: 1.45;
+}
+button.primary.ghost {
+  background: #1c4f82;
+  border-color: #2c65a1;
+  color: #eaf2ff;
+}
+
 .small { font-size: 12px; }
 
 .model-hint {

@@ -32,6 +32,9 @@ export const I18N = {
     },
     input: {
       label: "Choose a side-view running video (mp4/webm):",
+      sample: "Try sample video",
+      sampleCtaTitle: "No video handy? Try the built-in demo.",
+      sampleNote: "Loads demo.MOV (~22 MB), auto-runs analysis. No upload needed.",
       modelLabel: "Model quality",
       modelAuto: "Lite (default, faster)",
       modelLite: "Lite (default, faster)",
@@ -87,7 +90,10 @@ export const I18N = {
       ],
     },
     status: {
-      waitingVideo: "Status: waiting for video",
+      waitingVideo: "Status: waiting for video (upload or sample)",
+      sampleLoading: "Status: loading sample video {name} (~{size} MB)...",
+      sampleReady: "Status: sample ready: {width}x{height}, duration={duration}s",
+      sampleError: "Status: sample video failed to load.",
       checkingRequirements: "Status: checking video requirements...",
       checkingFps: "Status: checking video frame rate...",
       modelLoading: "Status: loading pose model ({modelType})...",
@@ -111,7 +117,7 @@ export const I18N = {
       analysisFailed: "Status: analysis failed: {error}",
     },
     alerts: {
-      chooseVideo: "Please choose a video file first.",
+      chooseVideo: "Please choose a video file or use Try sample video first.",
       videoNotLoaded: "Video is not fully loaded yet. Please try again in a moment.",
       modelLoadFailed: "Model load failed. Check your network or try Chrome/Edge.",
       analysisFailed: "Analysis failed: {error}. Try a clearer, longer video or another browser/device.",
@@ -323,6 +329,9 @@ export const I18N = {
     },
     input: {
       label: "選擇側面跑步影片（mp4/webm）：",
+      sample: "試用範例影片",
+      sampleCtaTitle: "沒有影片？直接用範例檔。",
+      sampleNote: "載入隨附的 demo.MOV（約 22 MB），自動開始分析，不需上傳。",
       modelLabel: "模型品質",
       modelAuto: "Lite（預設，較快）",
       modelLite: "Lite（預設，較快）",
@@ -378,7 +387,10 @@ export const I18N = {
       ],
     },
     status: {
-      waitingVideo: "狀態：等待上傳",
+      waitingVideo: "狀態：等待上傳或使用範例影片",
+      sampleLoading: "狀態：載入範例影片 {name}（約 {size} MB）...",
+      sampleReady: "狀態：範例影片就緒：{width}x{height}，長度 {duration}s",
+      sampleError: "狀態：範例影片載入失敗。",
       checkingRequirements: "狀態：檢查影片需求...",
       checkingFps: "狀態：檢查影片 FPS...",
       modelLoading: "狀態：載入姿勢模型（{modelType}）...",
@@ -402,7 +414,7 @@ export const I18N = {
       analysisFailed: "狀態：分析失敗：{error}",
     },
     alerts: {
-      chooseVideo: "請先選擇影片檔。",
+      chooseVideo: "請先選擇影片或點擊「試用範例影片」。",
       videoNotLoaded: "影片尚未載入完成，請稍候再試。",
       modelLoadFailed: "模型載入失敗，請檢查網路或改用 Chrome/Edge。",
       analysisFailed: "分析失敗：{error}。請嘗試更清晰或更長的影片，或改用其他瀏覽器/裝置。",

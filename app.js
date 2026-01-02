@@ -44,6 +44,9 @@ const MODEL_URL_PATTERN = /blazepose/i;
 const MOBILE_OVERLAY_EVERY = 6;
 const MOBILE_YIELD_EVERY = 1;
 const SAMPLE_FPS_MOBILE = 18;
+const SAMPLE_VIDEO_URL = "./demo.MOV";
+const SAMPLE_VIDEO_NAME = "demo.MOV";
+const SAMPLE_VIDEO_SIZE_MB = 22;
 const POSE_CONNECTIONS = (() => {
   try {
     return poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
@@ -60,6 +63,7 @@ const els = {
   overlay: $("#overlay"),
   btnAnalyze: $("#btnAnalyze"),
   btnDownload: $("#btnDownload"),
+  btnSample: $("#btnSample"),
   langButtons: document.querySelectorAll("[data-lang]"),
   progressBar: $("#progressBar"),
   status: $("#status"),
@@ -85,6 +89,9 @@ let inferenceCanvas = null;
 let inferenceCtx = null;
 let fetchPatched = false;
 let modelHintVisible = true;
+let sampleReady = false;
+let autoAnalyzeSample = false;
+let analysisRunning = false;
 
 function getValueByPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), obj);
@@ -438,8 +445,9 @@ async function loadModel() {
 
 function maybeEnableAnalyze() {
   const hasFile = !!els.file.files?.[0];
-  // Enable as soon as a file is chosen; analyze() will still guard if metadata isn't ready.
-  els.btnAnalyze.disabled = !hasFile;
+  const hasSample = sampleReady;
+  // Enable as soon as a source is ready; analyze() will still guard if metadata isn't ready.
+  els.btnAnalyze.disabled = !(hasFile || hasSample);
 }
 
 function resetOutputs() {
@@ -1204,7 +1212,9 @@ async function seekTo(video, tSec) {
 }
 
 async function analyze() {
-  if (!els.file.files?.[0]) {
+  const hasFile = !!els.file.files?.[0];
+  const hasSource = hasFile || sampleReady;
+  if (!hasSource) {
     alert(t("alerts.chooseVideo"));
     return;
   }
@@ -1506,7 +1516,34 @@ async function analyze() {
   setStatus("status.analysisDone");
 }
 
+async function runAnalysis() {
+  if (analysisRunning) return;
+  analysisRunning = true;
+  els.btnAnalyze.disabled = true;
+  if (els.btnSample) {
+    els.btnSample.disabled = true;
+  }
+  try {
+    await analyze();
+  } catch (e) {
+    console.error(e);
+    setStatus("status.analysisFailed", { error: String(e) });
+    alert(t("alerts.analysisFailed", { error: String(e) }));
+  } finally {
+    analysisRunning = false;
+    els.btnAnalyze.disabled = false;
+    if (els.btnSample) {
+      els.btnSample.disabled = false;
+    }
+  }
+}
+
 els.file.addEventListener("change", () => {
+  sampleReady = false;
+  autoAnalyzeSample = false;
+  if (els.btnSample) {
+    els.btnSample.disabled = false;
+  }
   const file = els.file.files?.[0];
   if (!file) return;
 
@@ -1535,18 +1572,51 @@ els.file.addEventListener("change", () => {
   };
 });
 
-els.btnAnalyze.addEventListener("click", async () => {
-  els.btnAnalyze.disabled = true;
-  try {
-    await analyze();
-  } catch (e) {
-    console.error(e);
-    setStatus("status.analysisFailed", { error: String(e) });
-    alert(t("alerts.analysisFailed", { error: String(e) }));
-  } finally {
-    els.btnAnalyze.disabled = false;
-  }
-});
+if (els.btnSample) {
+  els.btnSample.addEventListener("click", () => {
+    autoAnalyzeSample = true;
+    sampleReady = false;
+    setProgress(0);
+    setStatus("status.sampleLoading", { name: SAMPLE_VIDEO_NAME, size: SAMPLE_VIDEO_SIZE_MB });
+    if (els.file) {
+      els.file.value = "";
+    }
+    maybeEnableAnalyze();
+    els.btnSample.disabled = true;
+
+    els.video.src = SAMPLE_VIDEO_URL;
+    els.video.load();
+
+    els.video.onloadedmetadata = async () => {
+      sampleReady = true;
+      setStatus("status.sampleReady", {
+        width: els.video.videoWidth,
+        height: els.video.videoHeight,
+        duration: els.video.duration.toFixed(2),
+      });
+      await ensureCanvasReady();
+      maybeEnableAnalyze();
+      els.btnSample.disabled = false;
+      if (autoAnalyzeSample && !analysisRunning) {
+        autoAnalyzeSample = false;
+        await runAnalysis();
+      } else {
+        autoAnalyzeSample = false;
+      }
+    };
+
+    els.video.onerror = () => {
+      sampleReady = false;
+      autoAnalyzeSample = false;
+      setStatus("status.sampleError");
+      maybeEnableAnalyze();
+      els.btnAnalyze.disabled = true;
+      els.btnSample.disabled = false;
+    };
+  });
+}
+
+els.btnAnalyze.addEventListener("click", runAnalysis);
 
 els.btnDownload.addEventListener("click", () => {
   if (!lastAnalysis) return;
